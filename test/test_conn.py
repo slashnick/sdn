@@ -29,7 +29,8 @@ def connect():
 def test_packet_handling(proc):
     with connect() as sock:
         assert proc.stdout.readline() == b'a client has connected\n'
-        packet = b'\x04\x00\x00\x00\x12\x34\x56\x78'
+        packet = b'\x04\x00\x00\x00\x12\x34\x56\x78' * 2
         for byte in packet:
             sock.sendall(bytes([byte]))
+        assert proc.stdout.readline() == b'got packet\n'
         assert proc.stdout.readline() == b'got packet\n'
