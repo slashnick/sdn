@@ -82,7 +82,10 @@ void handle_packet(client_t *client) {
     free(client->buffer);
     client->bufsize = sizeof(ofp_header_t);
     client->pos = 0;
-    client->buffer = malloc(client->bufsize);
+    if ((client->buffer = malloc(client->bufsize)) == NULL) {
+        perror("malloc");
+        exit(-1);
+    }
 }
 
 void read_into_buffer(client_t *client) {
