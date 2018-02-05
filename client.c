@@ -8,14 +8,6 @@
 #define CLIENT_STATE_WAITING_HEADER 1
 #define CLIENT_STATE_WAITING_PACKET 2
 
-typedef struct {
-    uint8_t version;
-    uint8_t type;
-    uint16_t length;
-    uint32_t xid;
-    uint8_t data[];
-} __attribute__((packed)) ofp_header_t;
-
 static void handle_header(client_t *);
 static void handle_packet(client_t *);
 static void read_into_buffer(client_t *);
@@ -26,7 +18,7 @@ void init_client(client_t *client, int fd) {
     client->state = CLIENT_STATE_WAITING_HEADER;
     client->bufsize = sizeof(ofp_header_t);
     client->pos = 0;
-    if ((client->buffer = malloc(client->bufsize)) == NULL) {
+    if ((client->cur_packet = malloc(client->bufsize)) == NULL) {
         perror("malloc");
         exit(-1);
     }
@@ -56,16 +48,13 @@ void handle_write_event(client_t *client) {
 }
 
 void handle_header(client_t *client) {
-    ofp_header_t *header;
-
-    header = (ofp_header_t *)client->buffer;
-    header->length = ntohs(header->length);
+    client->cur_packet->length = ntohs(client->cur_packet->length);
 
     client->state = CLIENT_STATE_WAITING_PACKET;
-    if (header->length > client->bufsize) {
-        client->bufsize = header->length;
-        client->buffer = realloc(client->buffer, client->bufsize);
-        if (client->buffer == NULL) {
+    if (client->cur_packet->length > client->bufsize) {
+        client->bufsize = client->cur_packet->length;
+        client->cur_packet = realloc(client->cur_packet, client->bufsize);
+        if (client->cur_packet == NULL) {
             perror("realloc");
             exit(-1);
         }
@@ -79,10 +68,10 @@ void handle_packet(client_t *client) {
     printf("got packet\n");
 
     client->state = CLIENT_STATE_WAITING_HEADER;
-    free(client->buffer);
+    free(client->cur_packet);
     client->bufsize = sizeof(ofp_header_t);
     client->pos = 0;
-    if ((client->buffer = malloc(client->bufsize)) == NULL) {
+    if ((client->cur_packet = malloc(client->bufsize)) == NULL) {
         perror("malloc");
         exit(-1);
     }
@@ -96,7 +85,7 @@ void read_into_buffer(client_t *client) {
         return;
     }
 
-    status = read(client->fd, client->buffer + client->pos,
+    status = read(client->fd, (uint8_t *)client->cur_packet + client->pos,
                   client->bufsize - client->pos);
     if (status < 0) {
         /* We should never continue past this if statement */

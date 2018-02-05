@@ -3,6 +3,14 @@
 
 #include <stdint.h>
 
+typedef struct {
+    uint8_t version;
+    uint8_t type;
+    uint16_t length;
+    uint32_t xid;
+    uint8_t data[];
+} __attribute__((packed)) ofp_header_t;
+
 /*
  * Clients are state machines. A client is either waiting to receive a header,
  * or it is waiting to receive a packet.
@@ -14,7 +22,7 @@ typedef struct {
     uint8_t state;
     uint16_t bufsize;
     uint16_t pos;
-    uint8_t *buffer;
+    ofp_header_t *cur_packet;
 } client_t;
 
 void init_client(client_t *, int);
