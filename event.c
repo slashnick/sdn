@@ -93,7 +93,9 @@ void listen_and_serve(server_t *server) {
 
                 if ((size_t)clientfd > server->maxfd) {
                     /* Dynamically grow client list as we get more clients */
-                    server->maxfd = (size_t)clientfd;
+                    while ((size_t)clientfd > server->maxfd) {
+                        server->maxfd = server->maxfd * 2 + 1;
+                    }
                     server->clients =
                         realloc(server->clients,
                                 (server->maxfd + 1) * sizeof(client_t));
