@@ -26,7 +26,10 @@ void init_client(client_t *client, int fd) {
     client->state = CLIENT_STATE_WAITING_HEADER;
     client->bufsize = sizeof(ofp_header_t);
     client->pos = 0;
-    client->buffer = malloc(client->bufsize);
+    if ((client->buffer = malloc(client->bufsize)) == NULL) {
+        perror("malloc");
+        exit(-1);
+    }
 }
 
 /* Read some data into the buffer, and handle  */
@@ -62,6 +65,10 @@ void handle_header(client_t *client) {
     if (header->length > client->bufsize) {
         client->bufsize = header->length;
         client->buffer = realloc(client->buffer, client->bufsize);
+        if (client->buffer == NULL) {
+            perror("realloc");
+            exit(-1);
+        }
     } else {
         handle_packet(client);
     }
