@@ -107,14 +107,11 @@ void listen_and_serve(server_t *server) {
 
                 client = &server->clients[clientfd];
                 init_client(client, clientfd);
-
-                printf("a client has connected\n");
             } else {
                 assert((size_t)events[ndx].data.fd < server->maxfd);
                 client = &server->clients[events[ndx].data.fd];
                 if (events[ndx].events & EPOLLOUT) {
                     client->canwrite = 1;
-                    //printf("client %d can write\n", events[ndx].data.fd);
                 }
                 if (events[ndx].events & EPOLLIN) {
                     handle_read_event(client);
