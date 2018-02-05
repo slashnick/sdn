@@ -1,2 +1,6 @@
 sdn
+*.o
 *.dSYM
+.pytest_cache
+*.py[cod]
+__pycache__
