@@ -127,6 +127,7 @@ void close_server(server_t *server) {
         exit(-1);
     }
     free(server->clients);
+    server->clients = NULL;
 }
 
 void nonblock(int fd) {

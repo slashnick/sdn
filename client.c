@@ -16,6 +16,7 @@
 static void handle_header(client_t *);
 static void handle_packet(client_t *);
 static int read_into_buffer(client_t *);
+static void close_client(client_t *);
 
 void init_client(client_t *client, int fd) {
     client->fd = fd;
@@ -38,8 +39,7 @@ void handle_read_event(client_t *client) {
         if (status == READ_STOP) {
             break;
         } else if (status == READ_EOF) {
-            /* TODO */
-            printf("Got EOF\n");
+            close_client(client);
             break;
         } else if (status == READ_COMPLETE) {
             switch (client->state) {
@@ -124,4 +124,13 @@ int read_into_buffer(client_t *client) {
     client->pos += status;
 
     return (client->pos == client->bufsize) ? READ_COMPLETE : READ_PARTIAL;
+}
+
+void close_client(client_t *client) {
+    free(client->cur_packet);
+    client->cur_packet = NULL;
+    if (close(client->fd) < 0) {
+        perror("close");
+        exit(-1);
+    }
 }
