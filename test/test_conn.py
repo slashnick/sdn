@@ -3,6 +3,7 @@ import os.path
 import pytest
 import signal
 import socket
+import struct
 import subprocess
 import time
 
@@ -59,3 +60,15 @@ def test_big_echo(proc):
         assert sock1.recvall(len(payload1)) == payload1
         assert sock2.recvall(8) == b'\x04\3\xff\xff\x11\xc0\xff\xee'
         assert sock2.recvall(len(payload2)) == payload2
+
+
+def test_many_echo(proc):
+    with connect() as sock:
+        payload = os.urandom(65535 - 8)
+        for xid in range(10000):
+            header = b'\x04\x02\xff\xff' + struct.pack('!I', xid)
+            sock.sendall(header + payload)
+        for xid in range(10000):
+            header = b'\x04\x03\xff\xff' + struct.pack('!I', xid)
+            assert sock.recvall(8) == header
+            assert sock.recvall(len(payload)) == payload
