@@ -32,6 +32,8 @@ void handle_echo_request(client_t *client) {
     uint16_t length;
     ofp_header_t *hdr;
 
+    /* We guarantee that a processed packet will never have
+     * length < sizeof(ofp_header_t) */
     length = client->cur_packet->length;
     if ((hdr = malloc(length)) == NULL) {
         perror("malloc");
@@ -41,6 +43,7 @@ void handle_echo_request(client_t *client) {
     hdr->version = 0x04;
     hdr->type = OFPT_ECHO_REPLY;
     hdr->length = htons(length);
+    memcpy(&hdr->xid, &client->cur_packet->xid, sizeof(hdr->xid));
     memcpy(hdr->data, client->cur_packet->data, length - sizeof(ofp_header_t));
 
     client_write(client, hdr, length);
