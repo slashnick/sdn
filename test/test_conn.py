@@ -10,6 +10,12 @@ TARGET = os.path.join(os.path.dirname(__file__), '..', 'sdn')
 PORT = 8080
 
 
+class Socket(socket.socket):
+
+    def recvall(self, buffersize, flags=socket.MSG_WAITALL):
+        return self.recv(buffersize, flags)
+
+
 @pytest.fixture
 def proc():
     p = subprocess.Popen([TARGET, str(PORT)], stdout=subprocess.PIPE,
@@ -25,23 +31,13 @@ def proc():
 
 
 def connect():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock = Socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect(('localhost', PORT))
     return sock
 
 
-def test_packet_handling(proc):
+def test_echo(proc):
     with connect() as sock:
-        packet = b'\x04\x00\x00\x00\x12\x34\x56\x78'
-        for byte in packet:
-            sock.sendall(bytes([byte]))
-            time.sleep(.05)
-        assert proc.stdout.readline() == b'got a packet\n'
-        for byte in packet:
-            sock.sendall(bytes([byte]))
-            time.sleep(.05)
-        assert proc.stdout.readline() == b'got a packet\n'
-
-        sock.sendall(packet * 2)
-        assert proc.stdout.readline() == b'got a packet\n'
-        assert proc.stdout.readline() == b'got a packet\n'
+        packet = b'\x04\x02\x00\x14\0\0\0\0Hello world!'
+        sock.sendall(packet)
+        assert sock.recvall(20) == b'\x04\3\x00\x14\0\0\0\0Hello world!'

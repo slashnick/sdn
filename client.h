@@ -2,6 +2,7 @@
 #define CLIENT_H_
 
 #include <stdint.h>
+#include <stdlib.h>
 
 typedef struct {
     uint8_t version;
@@ -26,6 +27,7 @@ typedef struct {
 } client_t;
 
 void init_client(client_t *, int);
+void client_write(client_t *, const void *buf, size_t count);
 void handle_read_event(client_t *);
 void handle_write_event(client_t *);
 

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include "openflow.h"
 
 #define CLIENT_STATE_WAITING_HEADER 1
 #define CLIENT_STATE_WAITING_PACKET 2
@@ -65,21 +66,22 @@ void handle_write_event(client_t *client) {
 void handle_header(client_t *client) {
     client->cur_packet->length = ntohs(client->cur_packet->length);
 
-    client->state = CLIENT_STATE_WAITING_PACKET;
-    if (client->cur_packet->length > client->bufsize) {
+    if (client->cur_packet->length > sizeof(ofp_header_t)) {
         client->bufsize = client->cur_packet->length;
         client->cur_packet = realloc(client->cur_packet, client->bufsize);
         if (client->cur_packet == NULL) {
             perror("realloc");
             exit(-1);
         }
+    } else if (client->cur_packet->length < sizeof(ofp_header_t)) {
+        client->cur_packet->length = sizeof(ofp_header_t);
     }
+    client->state = CLIENT_STATE_WAITING_PACKET;
     /* Do not increment pos, we want to start reading just past the header */
 }
 
 void handle_packet(client_t *client) {
-    printf("got a packet\n");
-    switch (client->cur_packet->type) {}
+    handle_ofp_packet(client);
 
     client->state = CLIENT_STATE_WAITING_HEADER;
     free(client->cur_packet);
