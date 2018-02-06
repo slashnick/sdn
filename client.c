@@ -77,7 +77,8 @@ void flush_write_queue(client_t *client) {
 
     while (client->canwrite && client->write_queue_head != NULL) {
         node = client->write_queue_head;
-        status = write(client->fd, node->data, node->size);
+        status = write(client->fd, (uint8_t *)node->data + node->pos,
+                       node->size - node->pos);
         if (status < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 client->canwrite = 0;
@@ -86,11 +87,10 @@ void flush_write_queue(client_t *client) {
                 exit(-1);
                 /* TODO: just free and close the client */
             }
-        } else if (status < node->size) {
-            /* Incomplete write. Update node in-place. */
-            node->data = (uint8_t *)node->data + status;
-            node->size = node->size - (uint16_t)status;
-        } else {
+        }
+
+        node->pos += status;
+        if (node->pos == node->size) {
             /* Complete write. Clean up node */
             dequeue_write(client);
         }
@@ -180,6 +180,7 @@ void enqueue_write(client_t *client, void *buf, uint16_t count) {
     }
     node->next = NULL;
     node->data = buf;
+    node->pos = 0;
     node->size = count;
 
     if (client->write_queue_tail != NULL) {

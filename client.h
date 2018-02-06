@@ -15,6 +15,7 @@ typedef struct {
 typedef struct queued_write {
     struct queued_write *next;
     uint8_t *data;
+    uint16_t pos;
     uint16_t size;
 } queued_write_t;
 
