@@ -22,8 +22,8 @@ void handle_ofp_packet(client_t *client) {
             handle_echo_request(client);
             break;
         default:
-            printf("Got unexpected packet type 0x%02x\n",
-                   client->cur_packet->type);
+            fprintf(stderr, "Got unexpected packet type 0x%02x\n",
+                    client->cur_packet->type);
             break;
     }
 }
@@ -41,8 +41,7 @@ void handle_echo_request(client_t *client) {
     hdr->version = 0x04;
     hdr->type = OFPT_ECHO_REPLY;
     hdr->length = htons(length);
-    memcpy(hdr->data, client->cur_packet->data, length);
+    memcpy(hdr->data, client->cur_packet->data, length - sizeof(ofp_header_t));
 
-    /* TODO: something smart */
-    write(client->fd, hdr, length);
+    client_write(client, hdr, length);
 }

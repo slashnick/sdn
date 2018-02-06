@@ -18,6 +18,8 @@ static void handle_header(client_t *);
 static void handle_packet(client_t *);
 static int read_into_buffer(client_t *);
 static void close_client(client_t *);
+static void enqueue_write(client_t *, void *, uint16_t);
+static void dequeue_write(client_t *);
 
 void init_client(client_t *client, int fd) {
     client->fd = fd;
@@ -28,6 +30,16 @@ void init_client(client_t *client, int fd) {
     if ((client->cur_packet = malloc(client->bufsize)) == NULL) {
         perror("malloc");
         exit(-1);
+    }
+    client->write_queue_head = NULL;
+    client->write_queue_tail = NULL;
+}
+
+/* Note: client will now own buf, so don't use buf after making this call */
+void client_write(client_t *client, void *buf, uint16_t count) {
+    enqueue_write(client, buf, count);
+    if (client->canwrite) {
+        flush_write_queue(client);
     }
 }
 
@@ -59,8 +71,30 @@ void handle_read_event(client_t *client) {
     }
 }
 
-void handle_write_event(client_t *client) {
-    ((void)client);
+void flush_write_queue(client_t *client) {
+    queued_write_t *node;
+    ssize_t status;
+
+    while (client->canwrite && client->write_queue_head != NULL) {
+        node = client->write_queue_head;
+        status = write(client->fd, node->data, node->size);
+        if (status < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                client->canwrite = 0;
+            } else {
+                perror("write");
+                exit(-1);
+                /* TODO: just free and close the client */
+            }
+        } else if (status < node->size) {
+            /* Incomplete write. Update node in-place. */
+            node->data = (uint8_t *)node->data + status;
+            node->size = node->size - (uint16_t)status;
+        } else {
+            /* Complete write. Clean up node */
+            dequeue_write(client);
+        }
+    }
 }
 
 void handle_header(client_t *client) {
@@ -111,7 +145,7 @@ int read_into_buffer(client_t *client) {
                   client->bufsize - client->pos);
     if (status < 0) {
         /* We should never continue past this if statement */
-        if (errno == EAGAIN) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
             /* Do nothing */
             return READ_STOP;
         } else {
@@ -135,4 +169,38 @@ void close_client(client_t *client) {
         perror("close");
         exit(-1);
     }
+}
+
+void enqueue_write(client_t *client, void *buf, uint16_t count) {
+    queued_write_t *node;
+
+    if ((node = malloc(sizeof(queued_write_t))) == NULL) {
+        perror("malloc");
+        exit(-1);
+    }
+    node->next = NULL;
+    node->data = buf;
+    node->size = count;
+
+    if (client->write_queue_tail != NULL) {
+        client->write_queue_tail->next = node;
+        client->write_queue_tail = node;
+    } else {
+        client->write_queue_head = node;
+        client->write_queue_tail = node;
+    }
+}
+
+void dequeue_write(client_t *client) {
+    queued_write_t *node;
+
+    node = client->write_queue_head;
+    client->write_queue_head = client->write_queue_head->next;
+    if (client->write_queue_tail == node) {
+        client->write_queue_tail = NULL;
+    }
+
+    /* Node owns its data, so we free it here */
+    free(node->data);
+    free(node);
 }

@@ -64,6 +64,9 @@ void listen_and_serve(server_t *server) {
         exit(-1);
     }
 
+    /* Silence valgrind */
+    memset(&ev.data, 0, sizeof(ev.data));
+
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = server->fd;
     if (epoll_ctl(ep, EPOLL_CTL_ADD, server->fd, &ev) < 0) {
@@ -112,6 +115,7 @@ void listen_and_serve(server_t *server) {
                 client = &server->clients[events[ndx].data.fd];
                 if (events[ndx].events & EPOLLOUT) {
                     client->canwrite = 1;
+                    flush_write_queue(client);
                 }
                 if (events[ndx].events & EPOLLIN) {
                     handle_read_event(client);
