@@ -38,9 +38,6 @@ void init_client(client_t *client, int fd) {
 /* Note: client will now own buf, so don't use buf after making this call */
 void client_write(client_t *client, void *buf, uint16_t count) {
     enqueue_write(client, buf, count);
-    if (client->canwrite) {
-        flush_write_queue(client);
-    }
 }
 
 /* Read some data into the buffer, and handle  */
@@ -84,15 +81,15 @@ void flush_write_queue(client_t *client) {
                 client->canwrite = 0;
             } else {
                 perror("write");
-                exit(-1);
-                /* TODO: just free and close the client */
+                close_client(client);
+                break;
             }
-        }
-
-        node->pos += status;
-        if (node->pos == node->size) {
-            /* Complete write. Clean up node */
-            dequeue_write(client);
+        } else {
+            node->pos += status;
+            if (node->pos == node->size) {
+                /* Complete write. Clean up node */
+                dequeue_write(client);
+            }
         }
     }
 }
@@ -151,6 +148,7 @@ int read_into_buffer(client_t *client) {
         } else {
             perror("read");
             exit(-1);
+            return READ_STOP;
         }
     } else if (status == 0) {
         /* EOF */
@@ -163,11 +161,22 @@ int read_into_buffer(client_t *client) {
 }
 
 void close_client(client_t *client) {
+    queued_write_t *node;
+
     free(client->cur_packet);
     client->cur_packet = NULL;
+
+    /* Free any queued writes */
+    while (client->write_queue_head != NULL) {
+        node = client->write_queue_tail;
+        client->write_queue_head = client->write_queue_head->next;
+        free(node->data);
+        free(node);
+    }
+    client->write_queue_tail = NULL;
+
     if (close(client->fd) < 0) {
         perror("close");
-        exit(-1);
     }
 }
 

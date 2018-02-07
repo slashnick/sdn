@@ -113,13 +113,13 @@ void listen_and_serve(server_t *server) {
             } else {
                 assert((size_t)events[ndx].data.fd < server->maxfd);
                 client = &server->clients[events[ndx].data.fd];
-                if (events[ndx].events & EPOLLOUT) {
-                    client->canwrite = 1;
-                    flush_write_queue(client);
-                }
                 if (events[ndx].events & EPOLLIN) {
                     handle_read_event(client);
                 }
+                if (events[ndx].events & EPOLLOUT) {
+                    client->canwrite = 1;
+                }
+                flush_write_queue(client);
             }
         }
     }

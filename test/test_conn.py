@@ -63,12 +63,23 @@ def test_big_echo(proc):
 
 
 def test_many_echo(proc):
-    with connect() as sock:
-        payload = os.urandom(65535 - 8)
-        for xid in range(10000):
-            header = b'\x04\x02\xff\xff' + struct.pack('!I', xid)
+    with connect() as sock, open('double.in', 'wb') as f, open('double.out',
+            'wb') as out, open('double.exp', 'wb') as exp:
+        payload = os.urandom(0x1234 - 8)
+        for xid in range(100000):
+            header = b'\x04\x02\x12\x34' + struct.pack('!I', xid)
             sock.sendall(header + payload)
-        for xid in range(10000):
-            header = b'\x04\x03\xff\xff' + struct.pack('!I', xid)
-            assert sock.recvall(8) == header
-            assert sock.recvall(len(payload)) == payload
+            f.write(header + payload)
+        for xid in range(100000):
+            header = b'\x04\x03\x12\x34' + struct.pack('!I', xid)
+            exp.write(header + payload)
+            out.write(sock.recvall(8))
+            out.write(sock.recvall(len(payload)))
+
+
+def test_reading_reset(proc):
+    """TODO"""
+
+
+def test_writing_reset(proc):
+    """TODO"""
