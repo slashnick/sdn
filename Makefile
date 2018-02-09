@@ -1,5 +1,6 @@
 CC = clang
-CFLAGS = -g -Weverything -Werror -Wno-missing-noreturn -Wno-padded -Wno-packed
+CFLAGS = -g -Weverything -Werror -Wno-missing-noreturn -Wno-packed -Wno-padded \
+		 -Wno-cast-align
 
 SOURCES = sdn.c event.c event.h client.c client.h openflow.c openflow.h
 OBJECTS = sdn.o event.o client.o openflow.o

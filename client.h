@@ -26,13 +26,14 @@ typedef struct queued_write {
  */
 typedef struct {
     int fd;
-    uint8_t canwrite;
-    uint8_t state;
     uint16_t bufsize;
     uint16_t pos;
     ofp_header_t *cur_packet;
     queued_write_t *write_queue_head;
     queued_write_t *write_queue_tail;
+    uint8_t uid[8];
+    uint8_t canwrite;
+    uint8_t state;
 } client_t;
 
 void init_client(client_t *, int);

@@ -1,6 +1,26 @@
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/socket.h>
 #include "event.h"
+
+static uint16_t socket_port(int);
+int main(int argc, const char **);
+
+uint16_t socket_port(int sock) {
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+
+    if (getsockname(sock, (struct sockaddr *)&addr, &addr_len)) {
+        perror("getsockname");
+        exit(-1);
+    }
+    if (addr_len != sizeof(addr)) {
+        exit(-1);
+    }
+
+    return ntohs(addr.sin_port);
+}
 
 int main(int argc, const char *argv[]) {
     server_t server;
@@ -24,6 +44,7 @@ int main(int argc, const char *argv[]) {
     }
 
     init_server(&server, (uint16_t)port);
+    printf("Listening on port %ld\n", port ? port : socket_port(server.fd));
     listen_and_serve(&server);
     close_server(&server);
 
