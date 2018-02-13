@@ -67,7 +67,7 @@ void listen_and_serve(server_t *server) {
     /* Silence valgrind */
     memset(&ev.data, 0, sizeof(ev.data));
 
-    ev.events = EPOLLIN | EPOLLET;
+    ev.events = EPOLLIN;
     ev.data.fd = server->fd;
     if (epoll_ctl(ep, EPOLL_CTL_ADD, server->fd, &ev) < 0) {
         perror("epoll_ctl: listen");
@@ -83,7 +83,6 @@ void listen_and_serve(server_t *server) {
             if (events[ndx].data.fd == server->fd) {
                 if ((clientfd = accept(server->fd, NULL, NULL)) < 0) {
                     perror("accept");
-                    exit(-1);
                 }
                 nonblock(clientfd);
                 ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
@@ -128,7 +127,6 @@ void listen_and_serve(server_t *server) {
 void close_server(server_t *server) {
     if (close(server->fd) < 0) {
         perror("close");
-        exit(-1);
     }
     free(server->clients);
     server->clients = NULL;

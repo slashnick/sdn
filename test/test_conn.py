@@ -98,9 +98,18 @@ def test_switch_features(proc):
             b'0xdeadbeef1ac0ffee\n'
 
 
+def test_packet_in(proc):
+    with connect(proc) as sock:
+        packet = b'wxyz\x03\xd8\x00\x01\x00\0\xc0\xff\xee\x22\xfa\xce'
+        sock.sendall(make_packet(10, packet))
+        assert proc.stdout.readline() == b'Got packet in\n'
+
+
 def test_reading_reset(proc):
-    """TODO"""
+    with connect(proc) as sock:
+        # Have the socket do a connection reset
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                        struct.pack('ii', 1, 0))
+        sock.send(b'\x04\3\x00\xff\0\0\0\0')
 
-
-def test_writing_reset(proc):
-    """TODO"""
+    assert proc.stderr.readline() == b'read: Connection reset by peer\n'

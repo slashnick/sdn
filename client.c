@@ -147,7 +147,6 @@ int read_into_buffer(client_t *client) {
             return READ_STOP;
         } else {
             perror("read");
-            exit(-1);
             return READ_STOP;
         }
     } else if (status == 0) {
@@ -168,7 +167,7 @@ void close_client(client_t *client) {
 
     /* Free any queued writes */
     while (client->write_queue_head != NULL) {
-        node = client->write_queue_tail;
+        node = client->write_queue_head;
         client->write_queue_head = client->write_queue_head->next;
         free(node->data);
         free(node);
