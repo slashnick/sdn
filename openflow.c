@@ -27,7 +27,7 @@ typedef struct {
     uint32_t n_buffers;
     uint8_t n_tables;
     uint8_t auxiliary_id;
-    uint8_t _pad[3];
+    uint8_t _pad[2];
     uint32_t capabilities;
     uint32_t actions;
 } switch_features_t;
