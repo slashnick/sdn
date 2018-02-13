@@ -13,6 +13,13 @@ enum ofp_type {
     OFPT_FEATURE_REQ = 5,
     OFPT_FEATURE_RES = 6,
     OFPT_PACKET_IN = 10,
+    OFPT_PORT_STATUS = 12,
+};
+
+enum port_reason {
+    PORT_ADD = 0,
+    PORT_DEL = 1,
+    PORT_MOD = 2,
 };
 
 typedef struct {
@@ -34,11 +41,28 @@ typedef struct {
     uint8_t data[6];
 } packet_in_t;
 
+typedef struct {
+    uint16_t port_id;
+    uint8_t hw_addr[6];
+    char name[16];
+    uint32_t config;
+    uint32_t state;
+    uint32_t curr;
+    uint32_t advertised;
+} port_t;
+
+typedef struct {
+    uint8_t reason;
+    uint8_t _pad[7];
+    port_t port;
+} port_status_t;
+
 static ofp_header_t *make_packet(uint8_t, uint16_t, uint32_t);
 static void handle_hello(client_t *);
 static void handle_feature_res(client_t *);
 static void handle_echo_req(client_t *);
 static void handle_packet_in(client_t *);
+static void handle_port_status(client_t *);
 
 void handle_ofp_packet(client_t *client) {
     switch (client->cur_packet->type) {
@@ -53,6 +77,9 @@ void handle_ofp_packet(client_t *client) {
             break;
         case OFPT_PACKET_IN:
             handle_packet_in(client);
+            break;
+        case OFPT_PORT_STATUS:
+            handle_port_status(client);
             break;
         default:
             fprintf(stderr, "Got unexpected packet type 0x%02x\n",
@@ -153,4 +180,33 @@ void handle_packet_in(client_t *client) {
     pack = (packet_in_t *)client->cur_packet->data;
 
     printf("Got packet in\n");
+}
+
+void handle_port_status(client_t *client) {
+    const port_status_t *pack;
+    char port_name[16];
+
+    if (client->cur_packet->length < sizeof(port_status_t)) {
+        fprintf(stderr, "port_status too short\n");
+        return;
+    }
+    pack = (port_status_t *)client->cur_packet->data;
+
+    snprintf(port_name, sizeof(port_name), "%s", pack->port.name);
+
+    switch (pack->reason) {
+        case PORT_ADD:
+            printf("Add ");
+            break;
+        case PORT_DEL:
+            printf("Delete ");
+            break;
+        case PORT_MOD:
+            printf("Modify ");
+            break;
+        default:
+            printf("(Unknown) ");
+            break;
+    }
+    printf("port %s (0x%04x)\n", port_name, ntohs(pack->port.port_id));
 }

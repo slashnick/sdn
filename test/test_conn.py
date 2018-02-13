@@ -113,3 +113,11 @@ def test_reading_reset(proc):
         sock.send(b'\x04\3\x00\xff\0\0\0\0')
 
     assert proc.stderr.readline() == b'read: Connection reset by peer\n'
+
+
+def test_add_port(proc):
+    with connect(proc) as sock:
+        port = (b'\x13\x37\xad\xbc\xe0\xc0\xff\xee' + b'GE1/0/2\0' + b'\0' * 8 +
+                b'\0' * 4 * 4)
+        sock.sendall(make_packet(12, b'\0xxxxxxx' + port))
+        assert proc.stdout.readline() == b'Add port GE1/0/2 (0x1337)\n'
