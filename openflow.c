@@ -243,7 +243,7 @@ void handle_echo_req(client_t *client) {
     client_write(client, res, length);
 }
 
-void handle_packet_in(client_t *client) {
+void handle_packet_in(client_t *_client) {
     printf("Got packet in\n");
 }
 
