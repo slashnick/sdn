@@ -33,6 +33,8 @@ void init_client(client_t *client, int fd) {
     }
     client->write_queue_head = NULL;
     client->write_queue_tail = NULL;
+
+    init_connection(client);
 }
 
 /* Note: client will now own buf, so don't use buf after making this call */
