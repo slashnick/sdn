@@ -43,6 +43,7 @@ def proc():
 def connect(proc):
     sock = Socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect(('localhost', proc.port))
+    assert sock.recvall(8) == make_packet(0x00, b'', 0x9a020000)
     return sock
 
 
@@ -82,13 +83,13 @@ def test_many_big_echo(proc):
 def test_hello(proc):
     with connect(proc) as sock:
         sock.sendall(make_packet(0, b''))
-        assert sock.recvall(8) == make_packet(5, b'')
+        assert sock.recvall(8) == make_packet(5, b'', 0x09030000)
 
 
 def test_switch_features(proc):
     with connect(proc) as sock:
         sock.sendall(make_packet(0, b''))
-        assert sock.recvall(8) == make_packet(5, b'')
+        assert sock.recvall(8) == make_packet(5, b'', 0x09030000)
         datapath_id = b'\xde\xad\xbe\xef\x1a\xc0\xff\xee'
         pad = b'\0' * 16
         sock.sendall(make_packet(6, datapath_id + pad))
@@ -96,6 +97,9 @@ def test_switch_features(proc):
         assert proc.stdout.readline() == b'  Openflow version: 1.3\n'
         assert proc.stdout.readline() == b'  datapath-id: ' \
             b'0xdeadbeef1ac0ffee\n'
+
+        multipart_req = b'\x00\x0d\0\0\0\0\0\0'
+        assert sock.recvall(16) == make_packet(18, multipart_req, 0x78030000)
 
 
 def test_packet_in(proc):
@@ -115,9 +119,15 @@ def test_reading_reset(proc):
     assert proc.stderr.readline() == b'read: Connection reset by peer\n'
 
 
-def test_add_port(proc):
+def test_port_status(proc):
     with connect(proc) as sock:
-        port = (b'\x13\x37\xad\xbc\xe0\xc0\xff\xee' + b'GE1/0/2\0' + b'\0' * 8 +
-                b'\0' * 4 * 4)
-        sock.sendall(make_packet(12, b'\0xxxxxxx' + port))
-        assert proc.stdout.readline() == b'Add port GE1/0/2 (0x1337)\n'
+        port = (b'\x00\x03\x13\x37' b'\0\0\0\0' b'\xad\xbc\xe0\xc0\xff\xee'
+                b'\0\0' b'GE1/0/2\0' + b'\0' * 8 + b'\0' * 4 * 8)
+
+        sock.sendall(make_packet(12, b'\0\0\0\0\0\0\0\0' + port))
+        sock.sendall(make_packet(12, b'\1\0\0\0\0\0\0\0' + port))
+        sock.sendall(make_packet(12, b'\2\0\0\0\0\0\0\0' + port))
+
+        assert proc.stdout.readline() == b'Add port GE1/0/2 (0x31337)\n'
+        assert proc.stdout.readline() == b'Delete port GE1/0/2 (0x31337)\n'
+        assert proc.stdout.readline() == b'Modify port GE1/0/2 (0x31337)\n'
