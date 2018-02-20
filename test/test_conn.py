@@ -23,6 +23,11 @@ def make_packet(ptype, payload, xid=0x12c0ffee):
     return header + payload
 
 
+def make_port(name, port_id, addr):
+    return (struct.pack('!I', port_id) + b'\0\0\0\0' + addr + b'\0\0'
+            + name + b'\0' * (16 - len(name)) + b'\0' * 32)
+
+
 @pytest.fixture
 def proc():
     p = subprocess.Popen([TARGET, '0'], stdout=subprocess.PIPE,
@@ -71,6 +76,7 @@ def test_complex_echo(proc):
         assert sock2.recvall(len(payload2)) == payload2
 
 
+@pytest.mark.slow
 def test_many_big_echo(proc):
     with connect(proc) as sock:
         payload = os.urandom(0xffff - 8)
@@ -100,6 +106,24 @@ def test_switch_features(proc):
 
         multipart_req = b'\x00\x0d\0\0\0\0\0\0'
         assert sock.recvall(16) == make_packet(18, multipart_req, 0x78030000)
+        multipart_res = b'\x00\x0d\0\0\0\0\0\0'
+        ports = (make_port(b'GE1/0/1', 0x31337, b'\xad\xbc\xe0\xc0\xff\xee') +
+                 make_port(b'GE1/0/2', 0x31338, b'\xad\xbc\xe0\xc0\xff\xef') +
+                 make_port(b'GE1/0/3', 0x31339, b'\xad\xbc\xe0\xc0\xff\xf0') +
+                 make_port(b'GE1/0/4', 0x3133a, b'\xad\xbc\xe0\xc0\xff\xf1') +
+                 make_port(b'GE1/0/5', 0x3133b, b'\xad\xbc\xe0\xc0\xff\xf2') +
+                 make_port(b'GE1/0/6', 0x3133c, b'\xad\xbc\xe0\xc0\xff\xf3') +
+                 make_port(b'GE1/0/7', 0x3133d, b'\xad\xbc\xe0\xc0\xff\xf4'))
+        sock.sendall(make_packet(19, multipart_res + ports))
+
+        assert proc.stdout.readline() == b'  7 ports:\n'
+        assert proc.stdout.readline() == b'    GE1/0/1 (0x31337)\n'
+        assert proc.stdout.readline() == b'    GE1/0/2 (0x31338)\n'
+        assert proc.stdout.readline() == b'    GE1/0/3 (0x31339)\n'
+        assert proc.stdout.readline() == b'    GE1/0/4 (0x3133a)\n'
+        assert proc.stdout.readline() == b'    GE1/0/5 (0x3133b)\n'
+        assert proc.stdout.readline() == b'    GE1/0/6 (0x3133c)\n'
+        assert proc.stdout.readline() == b'    GE1/0/7 (0x3133d)\n'
 
 
 def test_packet_in(proc):
@@ -121,8 +145,7 @@ def test_reading_reset(proc):
 
 def test_port_status(proc):
     with connect(proc) as sock:
-        port = (b'\x00\x03\x13\x37' b'\0\0\0\0' b'\xad\xbc\xe0\xc0\xff\xee'
-                b'\0\0' b'GE1/0/2\0' + b'\0' * 8 + b'\0' * 4 * 8)
+        port = make_port(b'GE1/0/2', 0x31337, b'\xad\xbc\xe0\xc0\xff\xee')
 
         sock.sendall(make_packet(12, b'\0\0\0\0\0\0\0\0' + port))
         sock.sendall(make_packet(12, b'\1\0\0\0\0\0\0\0' + port))

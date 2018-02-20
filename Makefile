@@ -19,3 +19,6 @@ format:
 
 test: $(TARGET)
 	test/run.sh
+
+testall: $(TARGET)
+	test/run.sh --runslow
