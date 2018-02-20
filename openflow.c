@@ -156,7 +156,8 @@ void handle_error(client_t *client) {
 
     err = (ofp_error_t *)client->cur_packet->data;
 
-    printf("Error: type=0x%04x code=0x%04x\n", ntohs(err->type), ntohs(err->code));
+    printf("Error: type=0x%04x code=0x%04x\n", ntohs(err->type),
+           ntohs(err->code));
 }
 
 void handle_feature_res(client_t *client) {
@@ -200,7 +201,8 @@ void handle_feature_res(client_t *client) {
            client->uid[4], client->uid[5], client->uid[6], client->uid[7]);
 
     // Send a multipart port stats request
-    mp_pack = make_packet(OFPT_MULTIPART_REQ, sizeof(ofp_header_t) + sizeof(multipart_t), 888);
+    mp_pack = make_packet(OFPT_MULTIPART_REQ,
+                          sizeof(ofp_header_t) + sizeof(multipart_t), 888);
     req = (multipart_t *)mp_pack->data;
     memset(req, 0, sizeof(multipart_t));
     req->type = htons(OFPMP_PORT_DESC);
@@ -219,7 +221,9 @@ void handle_multipart_res(client_t *client) {
     }
 
     ports = (port_t *)mp->body;
-    num_ports = (client->cur_packet->length - sizeof(ofp_header_t) - sizeof(multipart_t)) / sizeof(port_t);
+    num_ports = (client->cur_packet->length - sizeof(ofp_header_t) -
+                 sizeof(multipart_t)) /
+                sizeof(port_t);
     printf("  %ld ports:\n", num_ports);
     for (ndx = 0; ndx < num_ports; ndx++) {
         snprintf(port_name, sizeof(port_name), "%s", ports[ndx].name);
