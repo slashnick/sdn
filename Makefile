@@ -1,5 +1,6 @@
-CC = gcc
-CFLAGS = -Wall -Werror
+CC = clang
+CFLAGS = -Weverything -Werror -Wno-padded -Wno-packed -Wno-missing-noreturn \
+         -Wno-cast-align -Wno-unused-parameter -g
 
 SOURCES = sdn.c event.c event.h client.c client.h openflow.c openflow.h
 OBJECTS = sdn.o event.o client.o openflow.o
