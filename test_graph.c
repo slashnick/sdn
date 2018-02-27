@@ -47,7 +47,7 @@ int main(void) {
     walk_shortest_path(graph, 4, 4, "H4", print_visit);
     walk_shortest_path(graph, 5, 2, "H5", print_visit);
 
-    /* Free our shit */
+    /* Free everything */
     for (sw = 0; (size_t)sw <= graph->max_vertex; sw++) {
         if (graph->vertices_sw[sw].present) {
             free(graph->vertices_sw[sw].edges);
