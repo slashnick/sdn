@@ -1,5 +1,6 @@
 sdn
 test_graph
+test_tree_set
 *.o
 *.dSYM
 .pytest_cache
