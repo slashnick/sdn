@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include "event.h"
+#include "openflow.h"
 
 static uint16_t socket_port(int);
 int main(int argc, const char **);
@@ -43,6 +44,7 @@ int main(int argc, const char *argv[]) {
         return 0;
     }
 
+    init_openflow();
     init_server(&server, (uint16_t)port);
     printf("Listening on port %ld\n", port ? port : socket_port(server.fd));
     listen_and_serve(&server);
