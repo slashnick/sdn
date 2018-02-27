@@ -7,6 +7,7 @@
 #include "graph.h"
 
 static graph_t *graph = NULL;
+static uint8_t setup_done = 0;
 
 enum ofp_type {
     OFPT_HELLO = 0,
@@ -196,6 +197,11 @@ void init_connection(client_t *client) {
     hello = make_packet(OFPT_HELLO, sizeof(ofp_header_t), 666);
     client_write(client, hello, sizeof(ofp_header_t));
     setup_table_miss(client);
+}
+
+void finish_setup(void) {
+    setup_done = 1;
+    printf("Setup phase finished\n");
 }
 
 void setup_table_miss(client_t *client) {

@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include "client.h"
+#include "openflow.h"
 
 static void nonblock(int);
 
@@ -57,7 +58,7 @@ void init_server(server_t *server, uint16_t port) {
 void listen_and_serve(server_t *server) {
 #define MAX_EVENTS 10
     struct epoll_event ev, events[MAX_EVENTS];
-    int clientfd, ep, nfds;
+    int clientfd, ep, nfds, timeout = -1, setup = 0;
     size_t ndx;
     client_t *client;
 
@@ -77,9 +78,14 @@ void listen_and_serve(server_t *server) {
     }
 
     for (;;) {
-        if ((nfds = epoll_wait(ep, events, MAX_EVENTS, -1)) < 0) {
+        if ((nfds = epoll_wait(ep, events, MAX_EVENTS, timeout)) < 0) {
             perror("epoll_wait");
             exit(-1);
+        }
+        if (nfds == 0 && setup == 1) {
+            timeout = -1;
+            setup = 2;
+            finish_setup();
         }
         for (ndx = 0; ndx < (size_t)nfds; ndx++) {
             if (events[ndx].data.fd == server->fd) {
@@ -111,6 +117,12 @@ void listen_and_serve(server_t *server) {
 
                 client = &server->clients[clientfd];
                 init_client(client, clientfd);
+
+                if (!setup) {
+                    /* We want to time out */
+                    setup = 1;
+                    timeout = 5000;
+                }
             } else {
                 assert((size_t)events[ndx].data.fd < server->maxfd);
                 client = &server->clients[events[ndx].data.fd];
