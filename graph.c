@@ -147,6 +147,7 @@ void walk_shortest_path(graph_t *graph, int start, uint32_t start_port,
         vertex_id = node->vertex;
         port = node->port;
         free(node);
+        node = NULL;
 
         /* Call cb to visit the node */
         cb(vertex_id, port, data);
@@ -162,6 +163,7 @@ void walk_shortest_path(graph_t *graph, int start, uint32_t start_port,
     }
 
     free(visited);
+    visited = NULL;
 }
 
 /* Allocated node belongs to queue */
