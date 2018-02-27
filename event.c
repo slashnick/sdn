@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@ void init_server(server_t *server, uint16_t port) {
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(port);
 
+    signal(SIGPIPE, SIG_IGN);
     if ((sock = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket");
         exit(-1);
