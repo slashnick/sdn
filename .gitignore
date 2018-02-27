@@ -1,4 +1,5 @@
 sdn
+test_graph
 *.o
 *.dSYM
 .pytest_cache

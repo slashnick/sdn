@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "graph.h"
+
+static graph_t *graph = NULL;
 
 enum ofp_type {
     OFPT_HELLO = 0,
@@ -178,9 +181,18 @@ static void handle_port_status(client_t *);
 static void send_poll(client_t *, uint32_t);
 static void handle_poll(client_t *, uint32_t, const switch_poll_t *);
 
+void init_openflow(void) {
+    if (graph != NULL) {
+        fprintf(stderr, "init_openflow() should only be called once\n");
+        exit(-1);
+    }
+    graph = init_graph();
+}
+
 void init_connection(client_t *client) {
     ofp_header_t *hello;
 
+    add_vertex_sw(graph, client->fd);
     hello = make_packet(OFPT_HELLO, sizeof(ofp_header_t), 666);
     client_write(client, hello, sizeof(ofp_header_t));
     setup_table_miss(client);
@@ -460,6 +472,7 @@ void send_poll(client_t *client, uint32_t port) {
 
 void handle_poll(client_t *client, uint32_t port,
                  const switch_poll_t *switch_poll) {
+    add_edge_sw(graph, client->fd, port, switch_poll->fd, switch_poll->port_id);
     printf("(%d 0x%x) <===> (%d 0x%x)\n", client->fd, port, switch_poll->fd,
            switch_poll->port_id);
 }
