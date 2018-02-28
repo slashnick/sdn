@@ -7,6 +7,7 @@
 #include "graph.h"
 
 static graph_t *graph = NULL;
+/*static tree_set_t *seen_hosts = NULL;*/
 static uint8_t setup_done = 0;
 
 enum ofp_type {
@@ -386,6 +387,8 @@ void handle_packet_in(client_t *client) {
     const match_t *match;
     const uint32_t *fields;
     const uint8_t *data;
+    uint32_t port_id;
+    uint64_t mac; /* We're going to cram an ethernet address into a long */
 
     if (client->cur_packet->length <
         sizeof(ofp_header_t) + sizeof(packet_in_t)) {
@@ -398,10 +401,19 @@ void handle_packet_in(client_t *client) {
            (ntohs(pack->match.length) + 7) / 8 * 8 + 2;
 
     fields = (const uint32_t *)match->oxm_fields;
-    if (((htonl(fields[0]) >> 9) & 0x7f) == OFPXMT_OFB_IN_PORT) {
-        if (ntohl(*(const uint32_t *)data) == SWITCH_POLL_MAGIC) {
-            handle_poll(client, htonl(fields[1]), (const switch_poll_t *)data);
-        }
+    /* We only care about PACKET_IN's that have the in port */
+    if (((htonl(fields[0]) >> 9) & 0x7f) != OFPXMT_OFB_IN_PORT) {
+        return;
+    }
+
+    port_id = ntohl(fields[1]);
+    if (ntohl(*(const uint32_t *)data) == SWITCH_POLL_MAGIC) {
+        handle_poll(client, port_id, (const switch_poll_t *)data);
+    } else {
+        /* Put the mac address in the lower 6 bytes of mac */
+        mac = *(const uint64_t *)data >> 16;
+        printf("Got packet in from 0x%012lx, port=%d sw%d\n", mac, port_id,
+               client->fd);
     }
 }
 
@@ -479,6 +491,4 @@ void send_poll(client_t *client, uint32_t port) {
 void handle_poll(client_t *client, uint32_t port,
                  const switch_poll_t *switch_poll) {
     add_edge_sw(graph, client->fd, port, switch_poll->fd, switch_poll->port_id);
-    printf("(%d 0x%x) <===> (%d 0x%x)\n", client->fd, port, switch_poll->fd,
-           switch_poll->port_id);
 }
