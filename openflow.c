@@ -7,7 +7,7 @@
 #include "graph.h"
 
 static graph_t *graph = NULL;
-/*static tree_set_t *seen_hosts = NULL;*/
+static tree_set_t *seen_hosts = NULL;
 static uint8_t setup_done = 0;
 
 enum ofp_type {
@@ -224,8 +224,8 @@ void setup_table_miss(client_t *client) {
     /* Add a rule */
     flow_mod->command = FM_CMD_ADD;
     flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
-    flow_mod->idle_timeout = htons(1);
-    flow_mod->hard_timeout = htons(1);
+    flow_mod->idle_timeout = htons(10);
+    flow_mod->hard_timeout = htons(10);
     flow_mod->out_port = OFPP_ANY;
     flow_mod->out_group = OFPP_ANY;
 
@@ -238,6 +238,50 @@ void setup_table_miss(client_t *client) {
     action->type = htons(OFPAT_OUTPUT);
     action->length = htons(sizeof(action_output_t));
     action->port = htonl(OFPP_CONTROLLER);
+    action->max_len = htons(0xffff);
+
+    client_write(client, pack, length);
+}
+
+void add_unicast_rule(int clientfd, uint32_t port, void *mac) {
+    /*
+     * Here's what I need this function to do:
+     *   Create a rule on table 0 that sends us to table 1 if we match mac
+     *   Create a rule on table 1 that outputs to port
+     * That should be 2 flow mods
+     * I also need to add a table-miss on table 0 that sends us to table 1, and
+     *   outputs to controller
+     */
+
+    client_t *client;
+    ofp_header_t *pack;
+    match_t *match;
+    instr_t *intsr;
+    action_output_t *action;
+    uint16_t length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
+                      sizeof(match_t) + sizeof(instr_t) +
+                      sizeof(action_output_t);
+
+    client = &of_clients[clientfd];
+    pack = make_packet(OFPT_FLOW_MOD, length, 0);
+    match = flow_mod->match;
+    instr = (instr_t *)((uint8_t *)match + sizeof(match_t));
+    action = instr->actions;
+
+    flow_mod->command = FM_CMD_ADD;
+    flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
+    flow_mod->idle_timeout = htons(10);
+    flow_mod->hard_timeout = htons(10);
+    flow_mod->out_port = OFPP_ANY;
+    flow_mod->out_group = OFPP_ANY;
+
+    /* TODO: match on address */
+    match->type = htons(OFPMT_OXM);
+    match->length = htons(4);
+
+    action->type = htons(OFPAT_OUTPUT);
+    action->length = htons(sizeof(action_output_t));
+    action->port = htonl(port);
     action->max_len = htons(0xffff);
 
     client_write(client, pack, length);
@@ -410,10 +454,15 @@ void handle_packet_in(client_t *client) {
     if (ntohl(*(const uint32_t *)data) == SWITCH_POLL_MAGIC) {
         handle_poll(client, port_id, (const switch_poll_t *)data);
     } else {
+        /* TODO: we need to be sure this is NOT a switch port */
         /* Put the mac address in the lower 6 bytes of mac */
-        mac = *(const uint64_t *)data >> 16;
-        printf("Got packet in from 0x%012lx, port=%d sw%d\n", mac, port_id,
-               client->fd);
+        mac = *(const uint64_t *)&data[6] >> 16;
+        if (!ts_contains(macs_seen, mac)) {
+            macs_seen = ts_insert(macs_seen, mac);
+            walk_shortest_path(graph, client->fd, port_id, &data[6], 0, add_unicast_rule);
+            /*printf("Got packet in from 0x%012lx, port=%d sw%d\n", mac, port_id,
+                   client->fd);*/
+        }
     }
 }
 

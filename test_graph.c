@@ -3,10 +3,14 @@
 #include <stdlib.h>
 #include "graph.h"
 
-static void print_visit(int sw, uint32_t port, void *host) {
-    char *host_name = (char *)host;
+static void print_visit(int sw, uint32_t port, const void *host) {
+    const char *host_name = (const char *)host;
 
     printf("S%d -> %s: port %d\n", sw, host_name, port);
+}
+
+static void mst_visit(int sw, uint32_t port, const void *_ignore) {
+    printf("S%d p%d\n", sw, port);
 }
 
 int main(void) {
@@ -41,11 +45,14 @@ int main(void) {
     }
 
     /* Walk the shortest path on the graph */
-    walk_shortest_path(graph, 1, 3, "H1", print_visit);
-    walk_shortest_path(graph, 2, 4, "H2", print_visit);
-    walk_shortest_path(graph, 3, 1, "H3", print_visit);
-    walk_shortest_path(graph, 4, 4, "H4", print_visit);
-    walk_shortest_path(graph, 5, 2, "H5", print_visit);
+    walk_shortest_path(graph, 1, 3, "H1", 0, print_visit);
+    walk_shortest_path(graph, 2, 4, "H2", 0, print_visit);
+    walk_shortest_path(graph, 3, 1, "H3", 0, print_visit);
+    walk_shortest_path(graph, 4, 4, "H4", 0, print_visit);
+    walk_shortest_path(graph, 5, 2, "H5", 0, print_visit);
+
+    /* Print the MST */
+    walk_shortest_path(graph, 5, 0xffffffff, NULL, 1, mst_visit);
 
     /* Free everything */
     for (sw = 0; (size_t)sw <= graph->max_vertex; sw++) {

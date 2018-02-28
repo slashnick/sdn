@@ -3,6 +3,8 @@
 
 #include "client.h"
 
+client_t *of_clients = NULL;
+
 void init_openflow(void);
 void init_connection(client_t *);
 void handle_ofp_packet(client_t *);

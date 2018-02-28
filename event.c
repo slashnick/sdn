@@ -49,6 +49,7 @@ void init_server(server_t *server, uint16_t port) {
     server->fd = sock;
     server->maxfd = 127;
     server->clients = malloc((server->maxfd + 1) * sizeof(client_t));
+    of_clients = server->clients;
     if (server->clients == NULL) {
         perror("malloc");
         exit(-1);

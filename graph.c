@@ -125,7 +125,8 @@ void add_single_edge(graph_t *graph, int me, uint32_t my_port, int them,
 
 /* Perform a breadth-first walk down the graph, call cb for every node */
 void walk_shortest_path(graph_t *graph, int start, uint32_t start_port,
-                        void *data, shortest_path_cb cb) {
+                        const void *data, uint8_t bidirectional,
+                        shortest_path_cb cb) {
     uint8_t *visited;
     bfs_queue_t queue = {NULL, NULL};
     bfs_node_t *node;
@@ -157,6 +158,9 @@ void walk_shortest_path(graph_t *graph, int start, uint32_t start_port,
             edge = &vertex->edges[edge_ndx];
             if (!visited[edge->vertex]) {
                 visited[edge->vertex] = 1;
+                if (bidirectional) {
+                    cb(vertex_id, edge->my_port, data);
+                }
                 enqueue(&queue, edge->vertex, edge->their_port);
             }
         }
