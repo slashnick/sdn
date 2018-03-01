@@ -25,6 +25,7 @@ enum ofp_type {
     OFPT_PORT_STATUS = 12,
     OFPT_PACKET_OUT = 13,
     OFPT_FLOW_MOD = 14,
+    OFPT_GROUP_MOD = 15,
     OFPT_MULTIPART_REQ = 18,
     OFPT_MULTIPART_RES = 19,
 };
@@ -50,6 +51,8 @@ enum oxm_ofb_match_fields {
 };
 
 /* Can't make values larger than a signed int in ISO C */
+#define BCAST_GROUP_ID 0x7f5d8dda
+
 #define OFPP_MAX 0xffffff00
 //#define OFPP_ALL 0xfffffffc
 #define OFPP_CONTROLLER 0xfffffffd
@@ -70,6 +73,7 @@ enum instr_write_type {
 
 enum action_type {
     OFPAT_OUTPUT = 0,
+    OFPAT_GROUP = 22,
 };
 
 enum multipart_type {
@@ -127,6 +131,28 @@ typedef struct {
     uint16_t max_len;
     uint8_t pad[6];
 } __attribute__((packed)) action_output_t;
+
+typedef struct {
+    uint16_t type;
+    uint16_t length;
+    uint32_t group_id;
+} __attribute__((packed)) action_group_t;
+
+typedef struct {
+    uint16_t len;
+    uint16_t weight;
+    uint32_t watch_port;
+    uint32_t watch_group;
+    uint8_t _pad[4];
+} __attribute__((packed)) bucket_t;
+
+typedef struct {
+    uint16_t command;
+    uint8_t type;
+    uint8_t _pad;
+    uint32_t group_id;
+    bucket_t buckets[];
+} __attribute__((packed)) group_mod_t;
 
 typedef struct {
     uint16_t type;
@@ -301,27 +327,72 @@ void setup_broadcast(void) {
 
 void add_broadcast_rule(int clientfd, const port_list_t *ports) {
     client_t *client;
-    ofp_header_t *pack;
+    ofp_header_t *pack, *gpack;
+    group_mod_t *group_mod;
+    bucket_t *bucket;
     flow_mod_t *flow_mod;
     match_t *match;
     instr_write_t *instr;
     action_output_t *action;
-    uint16_t packet_length, instr_length;
+    action_group_t *action_g;
+    uint16_t packet_length, gpack_length, num_ports;
     const port_list_t *node;
 
     client = &of_clients[clientfd];
 
-    instr_length = sizeof(instr_write_t);
+    num_ports = 0;
     for (node = ports; node != NULL; node = node->next) {
-        instr_length += sizeof(instr_write_t);
+        num_ports++;
     }
     for (node = client->ports; node != NULL; node = node->next) {
         if (!ts_contains(client->sw_ports, node->port)) {
-            instr_length += sizeof(instr_write_t);
+            num_ports++;
         }
     }
+    gpack_length = sizeof(ofp_header_t) + sizeof(group_mod_t) +
+                       num_ports * (sizeof(bucket_t) + sizeof(action_output_t));
+    gpack = make_packet(OFPT_GROUP_MOD, gpack_length, 0);
+    group_mod = (group_mod_t *)gpack->data;
+
+    group_mod->group_id = htonl(BCAST_GROUP_ID);
+
+    // MST switch ports
+    bucket = group_mod->buckets;
+    for (node = ports; node != NULL; node = node->next) {
+        bucket->len = htons(sizeof(bucket_t) + sizeof(action_output_t));
+        bucket->watch_port = htonl(OFPP_ANY);
+        bucket->watch_group = htonl(OFPP_ANY);
+
+        action = (action_output_t *)(bucket + 1);
+        action->type = htons(OFPAT_OUTPUT);
+        action->length = htons(sizeof(action_output_t));
+        action->port = htonl(node->port);
+        action->max_len = htons(0xffff);
+
+        bucket = (bucket_t *)(action + 1);
+    }
+    // Host ports
+    for (node = client->ports; node != NULL; node = node->next) {
+        if (!ts_contains(client->sw_ports, node->port)) {
+            bucket->len = htons(sizeof(bucket_t) + sizeof(action_output_t));
+            bucket->watch_port = htonl(OFPP_ANY);
+            bucket->watch_group = htonl(OFPP_ANY);
+
+            action = (action_output_t *)(bucket + 1);
+            action->type = htons(OFPAT_OUTPUT);
+            action->length = htons(sizeof(action_output_t));
+            action->port = htonl(node->port);
+            action->max_len = htons(0xffff);
+
+            bucket = (bucket_t *)(action + 1);
+        }
+    }
+
+    client_write(client, gpack, gpack_length);
+
     packet_length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
-                    sizeof(match_t) + instr_length;
+                    sizeof(match_t) + sizeof(instr_write_t) +
+                    sizeof(action_group_t);
 
     pack = make_packet(OFPT_FLOW_MOD, packet_length, 0);
     flow_mod = (flow_mod_t *)pack->data;
@@ -339,25 +410,12 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
     match->length = htons(4);
 
     instr->type = htons(OFPIT_WRITE_ACTIONS);
-    instr->length = htons(instr_length);
+    instr->length = htons(sizeof(instr_write_t) + sizeof(action_group_t));
 
-    /* Add a write action for each port */
-    for (action = instr->actions, node = ports; node != NULL;
-         node = node->next, action++) {
-        action->type = htons(OFPAT_OUTPUT);
-        action->length = htons(sizeof(action_output_t));
-        action->port = htonl(node->port);
-        action->max_len = htons(0xffff);
-    }
-    for (node = client->ports; node != NULL; node = node->next) {
-        if (!ts_contains(client->sw_ports, node->port)) {
-            action->type = htons(OFPAT_OUTPUT);
-            action->length = htons(sizeof(action_output_t));
-            action->port = htonl(node->port);
-            action->max_len = htons(0xffff);
-            action++;
-        }
-    }
+    action_g = (action_group_t *)instr->actions;
+    action_g->type = htons(OFPAT_GROUP);
+    action_g->length = htons(sizeof(action_group_t));
+    action_g->group_id = htonl(BCAST_GROUP_ID);
 
     client_write(client, pack, packet_length);
 }
