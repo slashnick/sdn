@@ -20,7 +20,6 @@ typedef struct {
 } vertex_sw_t;
 
 typedef struct {
-    /* TODO: store a tree set of known hosts */
     vertex_sw_t *vertices_sw; /* Array of switches */
     size_t max_vertex;
 } graph_t;
