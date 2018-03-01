@@ -34,6 +34,8 @@ void init_client(client_t *client, int fd) {
     }
     client->write_queue_head = NULL;
     client->write_queue_tail = NULL;
+    client->sw_ports = NULL;
+    client->ports = NULL;
 
     init_connection(client);
 }

@@ -51,7 +51,7 @@ enum oxm_ofb_match_fields {
 
 /* Can't make values larger than a signed int in ISO C */
 #define OFPP_MAX 0xffffff00
-#define OFPP_ALL 0xfffffffc
+//#define OFPP_ALL 0xfffffffc
 #define OFPP_CONTROLLER 0xfffffffd
 #define OFPP_ANY 0xffffffff
 
@@ -315,8 +315,11 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
     for (node = ports; node != NULL; node = node->next) {
         instr_length += sizeof(instr_write_t);
     }
-    instr_length =
-        sizeof(instr_write_t) + sizeof(action_output_t);  // TODO: remove
+    for (node = client->ports; node != NULL; node = node->next) {
+        if (!ts_contains(client->sw_ports, node->port)) {
+            instr_length += sizeof(instr_write_t);
+        }
+    }
     packet_length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
                     sizeof(match_t) + instr_length;
 
@@ -339,7 +342,6 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
     instr->length = htons(instr_length);
 
     /* Add a write action for each port */
-    /*
     for (action = instr->actions, node = ports; node != NULL;
          node = node->next, action++) {
         action->type = htons(OFPAT_OUTPUT);
@@ -347,12 +349,15 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
         action->port = htonl(node->port);
         action->max_len = htons(0xffff);
     }
-    */
-    action = instr->actions;
-    action->type = htons(OFPAT_OUTPUT);
-    action->length = htons(sizeof(action_output_t));
-    action->port = htonl(OFPP_ALL);
-    action->max_len = htons(0xffff);
+    for (node = client->ports; node != NULL; node = node->next) {
+        if (!ts_contains(client->sw_ports, node->port)) {
+            action->type = htons(OFPAT_OUTPUT);
+            action->length = htons(sizeof(action_output_t));
+            action->port = htonl(node->port);
+            action->max_len = htons(0xffff);
+            action++;
+        }
+    }
 
     client_write(client, pack, packet_length);
 }
@@ -552,6 +557,7 @@ void handle_multipart_res(client_t *client) {
     size_t ndx, num_ports;
     char port_name[16];
     uint32_t port_id;
+    port_list_t *port_node;
 
     mp = (multipart_t *)client->cur_packet->data;
     if (ntohs(mp->type) != OFPMP_PORT_DESC) {
@@ -567,6 +573,13 @@ void handle_multipart_res(client_t *client) {
         port_id = ntohl(ports[ndx].port_id);
         if (port_id <= OFPP_MAX) {
             send_poll(client, ntohl(ports[ndx].port_id));
+            if ((port_node = malloc(sizeof(port_list_t))) == NULL) {
+                perror("malloc");
+                exit(-1);
+            }
+            port_node->port = port_id;
+            port_node->next = client->ports;
+            client->ports = port_node;
         }
     }
 }
@@ -615,15 +628,16 @@ void handle_packet_in(client_t *client) {
     if (ntohl(*(uint32_t *)data) == SWITCH_POLL_MAGIC) {
         handle_poll(client, port_id, (const switch_poll_t *)data);
     } else if (setup_done) {
-        /* TODO: we need to be sure this is NOT a switch port */
-        /* Put the mac address in the lower 6 bytes of mac */
-        mac = ((uint64_t)data[6] << 40) | ((uint64_t)data[7] << 32) |
-              ((uint64_t)data[8] << 24) | ((uint64_t)data[9] << 16) |
-              ((uint64_t)data[10] << 8) | data[11];
-        if (!ts_contains(seen_hosts, mac)) {
-            seen_hosts = ts_insert(seen_hosts, mac);
-            walk_shortest_path(graph, client->fd, port_id, &data[6], 0,
-                               add_unicast_rule);
+        if (!ts_contains(client->sw_ports, port_id)) {
+            /* Put the mac address in the lower 6 bytes of mac */
+            mac = ((uint64_t)data[6] << 40) | ((uint64_t)data[7] << 32) |
+                  ((uint64_t)data[8] << 24) | ((uint64_t)data[9] << 16) |
+                  ((uint64_t)data[10] << 8) | data[11];
+            if (!ts_contains(seen_hosts, mac)) {
+                seen_hosts = ts_insert(seen_hosts, mac);
+                walk_shortest_path(graph, client->fd, port_id, &data[6], 0,
+                                   add_unicast_rule);
+            }
         }
     }
 }
@@ -702,4 +716,5 @@ void send_poll(client_t *client, uint32_t port) {
 void handle_poll(client_t *client, uint32_t port,
                  const switch_poll_t *switch_poll) {
     add_edge_sw(graph, client->fd, port, switch_poll->fd, switch_poll->port_id);
+    client->sw_ports = ts_insert(client->sw_ports, port);
 }
