@@ -5,6 +5,10 @@
 #include <string.h>
 #include <unistd.h>
 #include "graph.h"
+#include "mst.h"
+#include "tree_set.h"
+
+client_t *of_clients = NULL;
 
 static graph_t *graph = NULL;
 static tree_set_t *seen_hosts = NULL;
@@ -35,13 +39,19 @@ enum flow_mod_cmd {
     FM_CMD_ADD = 0,
 };
 
-enum {
+enum ofp_oxm_class {
+    OFPXMC_OPENFLOW_BASIC = 0x8000,
+};
+
+enum oxm_ofb_match_fields {
     OFPXMT_OFB_IN_PORT = 0,
+    OFPXMT_OFB_ETH_DST = 3,
+    OFPXMT_OFB_ETH_SRC = 4,
 };
 
 /* Can't make values larger than a signed int in ISO C */
 #define OFPP_MAX 0xffffff00
-//#define OFPP_ALL 0xfffffffc
+#define OFPP_ALL 0xfffffffc
 #define OFPP_CONTROLLER 0xfffffffd
 #define OFPP_ANY 0xffffffff
 
@@ -53,7 +63,8 @@ enum match_type {
     OFPMT_OXM = 1,
 };
 
-enum instr_type {
+enum instr_write_type {
+    OFPIT_GOTO_TABLE = 1,
     OFPIT_WRITE_ACTIONS = 3,
 };
 
@@ -122,7 +133,14 @@ typedef struct {
     uint16_t length;
     uint8_t _pad[4];
     action_output_t actions[];
-} __attribute__((packed)) instr_t;
+} __attribute__((packed)) instr_write_t;
+
+typedef struct {
+    uint16_t type;
+    uint16_t length;
+    uint8_t table_id;
+    uint8_t _pad[3];
+} __attribute__((packed)) instr_goto_t;
 
 typedef struct {
     uint32_t buffer_id;
@@ -172,6 +190,11 @@ typedef struct {
 
 static ofp_header_t *make_packet(uint8_t, uint16_t, uint32_t);
 static void setup_table_miss(client_t *);
+static void setup_broadcast(void);
+static void add_broadcast_rule(int, const port_list_t *);
+static void add_unicast_rule(int, uint32_t, void *);
+static void add_source_mac_rule(client_t *, const void *);
+static void add_dest_mac_rule(client_t *, const void *, uint32_t);
 static void send_packet_out(client_t *, uint32_t, const void *, uint16_t);
 static void handle_hello(client_t *);
 static void handle_error(client_t *);
@@ -203,29 +226,109 @@ void init_connection(client_t *client) {
 void finish_setup(void) {
     setup_done = 1;
     printf("Setup phase finished\n");
+    setup_broadcast();
 }
 
 void setup_table_miss(client_t *client) {
     ofp_header_t *pack;
     flow_mod_t *flow_mod;
     match_t *match;
-    instr_t *instr;
+    instr_write_t *instr1;
+    instr_goto_t *instr2;
     action_output_t *action;
     uint16_t length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
-                      sizeof(match_t) + sizeof(instr_t) +
-                      sizeof(action_output_t);
+                      sizeof(match_t) + sizeof(instr_write_t) +
+                      sizeof(action_output_t) + sizeof(instr_goto_t);
 
     pack = make_packet(OFPT_FLOW_MOD, length, 0x1234321);
     flow_mod = (flow_mod_t *)pack->data;
     match = flow_mod->match;
-    instr = (instr_t *)((uint8_t *)match + sizeof(match_t));
-    action = instr->actions;
+    instr2 = (instr_goto_t *)((uint8_t *)match + sizeof(match_t));
+    instr1 = (instr_write_t *)(instr2 + 1);
+    action = instr1->actions;
 
     /* Add a rule */
+    flow_mod->table_id = 0;
     flow_mod->command = FM_CMD_ADD;
     flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
-    flow_mod->idle_timeout = htons(10);
-    flow_mod->hard_timeout = htons(10);
+    flow_mod->out_port = OFPP_ANY;
+    flow_mod->out_group = OFPP_ANY;
+
+    match->type = htons(OFPMT_OXM);
+    match->length = htons(4);
+
+    instr1->type = htons(OFPIT_WRITE_ACTIONS);
+    instr1->length = htons(sizeof(instr_write_t) + sizeof(action_output_t));
+
+    action->type = htons(OFPAT_OUTPUT);
+    action->length = htons(sizeof(action_output_t));
+    action->port = htonl(OFPP_CONTROLLER);
+    action->max_len = htons(0xffff);
+
+    instr2->type = htons(OFPIT_GOTO_TABLE);
+    instr2->length = htons(sizeof(instr_goto_t));
+    instr2->table_id = 1;
+
+    client_write(client, pack, length);
+}
+
+void setup_broadcast(void) {
+    port_list_t **mst;
+    int firstfd, fd;
+
+    // Find the first fd that's valid
+    for (firstfd = 0; (size_t)firstfd <= graph->max_vertex; firstfd++) {
+        // I am breaking the abstraction here. Sorry
+        if (graph->vertices_sw[firstfd].present) {
+            break;
+        }
+    }
+    if ((size_t)firstfd > graph->max_vertex) {
+        return;
+    }
+
+    mst = init_mst(graph->max_vertex);
+    walk_shortest_path(graph, firstfd, IGNORE_LINK, mst, 1, add_mst_edge);
+
+    for (fd = 0; (size_t)fd <= graph->max_vertex; fd++) {
+        if (graph->vertices_sw[fd].present) {
+            add_broadcast_rule(fd, mst[fd]);
+        }
+    }
+
+    free_mst(mst, graph->max_vertex);
+}
+
+void add_broadcast_rule(int clientfd, const port_list_t *ports) {
+    client_t *client;
+    ofp_header_t *pack;
+    flow_mod_t *flow_mod;
+    match_t *match;
+    instr_write_t *instr;
+    action_output_t *action;
+    uint16_t packet_length, instr_length;
+    const port_list_t *node;
+
+    client = &of_clients[clientfd];
+
+    instr_length = sizeof(instr_write_t);
+    for (node = ports; node != NULL; node = node->next) {
+        instr_length += sizeof(instr_write_t);
+    }
+    instr_length =
+        sizeof(instr_write_t) + sizeof(action_output_t);  // TODO: remove
+    packet_length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
+                    sizeof(match_t) + instr_length;
+
+    pack = make_packet(OFPT_FLOW_MOD, packet_length, 0);
+    flow_mod = (flow_mod_t *)pack->data;
+    match = flow_mod->match;
+    instr = (instr_write_t *)((uint8_t *)match + sizeof(match_t));
+
+    flow_mod->table_id = 1;
+    flow_mod->command = FM_CMD_ADD;
+    flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
+    flow_mod->priority = htons(0);
     flow_mod->out_port = OFPP_ANY;
     flow_mod->out_group = OFPP_ANY;
 
@@ -233,55 +336,113 @@ void setup_table_miss(client_t *client) {
     match->length = htons(4);
 
     instr->type = htons(OFPIT_WRITE_ACTIONS);
-    instr->length = htons(sizeof(instr_t) + sizeof(action_output_t));
+    instr->length = htons(instr_length);
 
+    /* Add a write action for each port */
+    /*
+    for (action = instr->actions, node = ports; node != NULL;
+         node = node->next, action++) {
+        action->type = htons(OFPAT_OUTPUT);
+        action->length = htons(sizeof(action_output_t));
+        action->port = htonl(node->port);
+        action->max_len = htons(0xffff);
+    }
+    */
+    action = instr->actions;
     action->type = htons(OFPAT_OUTPUT);
     action->length = htons(sizeof(action_output_t));
-    action->port = htonl(OFPP_CONTROLLER);
+    action->port = htonl(OFPP_ALL);
     action->max_len = htons(0xffff);
 
-    client_write(client, pack, length);
+    client_write(client, pack, packet_length);
 }
 
 void add_unicast_rule(int clientfd, uint32_t port, void *mac) {
     /*
-     * Here's what I need this function to do:
-     *   Create a rule on table 0 that sends us to table 1 if we match mac
-     *   Create a rule on table 1 that outputs to port
-     * That should be 2 flow mods
      * I also need to add a table-miss on table 0 that sends us to table 1, and
      *   outputs to controller
      */
 
     client_t *client;
-    ofp_header_t *pack;
-    match_t *match;
-    instr_t *intsr;
-    action_output_t *action;
-    uint16_t length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
-                      sizeof(match_t) + sizeof(instr_t) +
-                      sizeof(action_output_t);
 
     client = &of_clients[clientfd];
-    pack = make_packet(OFPT_FLOW_MOD, length, 0);
-    match = flow_mod->match;
-    instr = (instr_t *)((uint8_t *)match + sizeof(match_t));
-    action = instr->actions;
+    add_source_mac_rule(client, mac);
+    add_dest_mac_rule(client, mac, port);
+}
 
+void add_source_mac_rule(client_t *client, const void *mac) {
+    ofp_header_t *pack;
+    flow_mod_t *flow_mod;
+    match_t *match;
+    instr_goto_t *instr;
+    uint32_t *fields;
+    uint16_t length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
+                      sizeof(match_t) + 8 + sizeof(instr_goto_t);
+
+    pack = make_packet(OFPT_FLOW_MOD, length, 0);
+    flow_mod = (flow_mod_t *)pack->data;
+    match = flow_mod->match;
+    instr = (instr_goto_t *)((uint8_t *)match + sizeof(match_t) + 8);
+
+    flow_mod->table_id = 0;
     flow_mod->command = FM_CMD_ADD;
     flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
-    flow_mod->idle_timeout = htons(10);
-    flow_mod->hard_timeout = htons(10);
+    flow_mod->priority = htons(2);
     flow_mod->out_port = OFPP_ANY;
     flow_mod->out_group = OFPP_ANY;
 
-    /* TODO: match on address */
     match->type = htons(OFPMT_OXM);
-    match->length = htons(4);
+    match->length = htons(14);
+    fields = (uint32_t *)match->oxm_fields;
+    fields[0] = htonl(((uint32_t)OFPXMC_OPENFLOW_BASIC << 16) |
+                      (OFPXMT_OFB_ETH_SRC << 9) | 6);
+    memcpy(fields + 1, mac, 6);
+
+    instr->type = htons(OFPIT_GOTO_TABLE);
+    instr->length = htons(sizeof(instr_goto_t));
+    instr->table_id = 1;
+
+    client_write(client, pack, length);
+}
+
+void add_dest_mac_rule(client_t *client, const void *mac, uint32_t port_id) {
+    ofp_header_t *pack;
+    flow_mod_t *flow_mod;
+    match_t *match;
+    instr_write_t *instr;
+    action_output_t *action;
+    uint32_t *fields;
+    uint16_t length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
+                      sizeof(match_t) + 8 + sizeof(instr_write_t) +
+                      sizeof(action_output_t);
+
+    pack = make_packet(OFPT_FLOW_MOD, length, 0);
+    flow_mod = (flow_mod_t *)pack->data;
+    match = flow_mod->match;
+    instr = (instr_write_t *)((uint8_t *)match + sizeof(match_t) + 8);
+    action = instr->actions;
+
+    /* Add a rule */
+    flow_mod->table_id = 1;
+    flow_mod->command = FM_CMD_ADD;
+    flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
+    flow_mod->priority = htons(11);
+    flow_mod->out_port = OFPP_ANY;
+    flow_mod->out_group = OFPP_ANY;
+
+    match->type = htons(OFPMT_OXM);
+    match->length = htons(14);
+    fields = (uint32_t *)match->oxm_fields;
+    fields[0] = htonl(((uint32_t)OFPXMC_OPENFLOW_BASIC << 16) |
+                      (OFPXMT_OFB_ETH_DST << 9) | 6);
+    memcpy(fields + 1, mac, 6);
+
+    instr->type = htons(OFPIT_WRITE_ACTIONS);
+    instr->length = htons(sizeof(instr_write_t) + sizeof(action_output_t));
 
     action->type = htons(OFPAT_OUTPUT);
     action->length = htons(sizeof(action_output_t));
-    action->port = htonl(port);
+    action->port = htonl(port_id);
     action->max_len = htons(0xffff);
 
     client_write(client, pack, length);
@@ -427,10 +588,10 @@ void handle_echo_req(client_t *client) {
 }
 
 void handle_packet_in(client_t *client) {
-    const packet_in_t *pack;
-    const match_t *match;
-    const uint32_t *fields;
-    const uint8_t *data;
+    packet_in_t *pack;
+    match_t *match;
+    uint32_t *fields;
+    uint8_t *data;
     uint32_t port_id;
     uint64_t mac; /* We're going to cram an ethernet address into a long */
 
@@ -441,27 +602,28 @@ void handle_packet_in(client_t *client) {
     }
     pack = (packet_in_t *)client->cur_packet->data;
     match = &pack->match;
-    data = (const uint8_t *)&pack->match +
-           (ntohs(pack->match.length) + 7) / 8 * 8 + 2;
+    data =
+        (uint8_t *)&pack->match + (ntohs(pack->match.length) + 7) / 8 * 8 + 2;
 
-    fields = (const uint32_t *)match->oxm_fields;
+    fields = (uint32_t *)match->oxm_fields;
     /* We only care about PACKET_IN's that have the in port */
     if (((htonl(fields[0]) >> 9) & 0x7f) != OFPXMT_OFB_IN_PORT) {
         return;
     }
 
     port_id = ntohl(fields[1]);
-    if (ntohl(*(const uint32_t *)data) == SWITCH_POLL_MAGIC) {
+    if (ntohl(*(uint32_t *)data) == SWITCH_POLL_MAGIC) {
         handle_poll(client, port_id, (const switch_poll_t *)data);
-    } else {
+    } else if (setup_done) {
         /* TODO: we need to be sure this is NOT a switch port */
         /* Put the mac address in the lower 6 bytes of mac */
-        mac = *(const uint64_t *)&data[6] >> 16;
-        if (!ts_contains(macs_seen, mac)) {
-            macs_seen = ts_insert(macs_seen, mac);
-            walk_shortest_path(graph, client->fd, port_id, &data[6], 0, add_unicast_rule);
-            /*printf("Got packet in from 0x%012lx, port=%d sw%d\n", mac, port_id,
-                   client->fd);*/
+        mac = ((uint64_t)data[6] << 40) | ((uint64_t)data[7] << 32) |
+              ((uint64_t)data[8] << 24) | ((uint64_t)data[9] << 16) |
+              ((uint64_t)data[10] << 8) | data[11];
+        if (!ts_contains(seen_hosts, mac)) {
+            seen_hosts = ts_insert(seen_hosts, mac);
+            walk_shortest_path(graph, client->fd, port_id, &data[6], 0,
+                               add_unicast_rule);
         }
     }
 }

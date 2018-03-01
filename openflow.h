@@ -3,7 +3,7 @@
 
 #include "client.h"
 
-client_t *of_clients = NULL;
+extern client_t *of_clients;
 
 void init_openflow(void);
 void init_connection(client_t *);

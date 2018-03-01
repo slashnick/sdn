@@ -110,6 +110,7 @@ void listen_and_serve(server_t *server) {
                     server->clients =
                         realloc(server->clients,
                                 (server->maxfd + 1) * sizeof(client_t));
+                    of_clients = server->clients;
                     if (server->clients == NULL) {
                         perror("realloc");
                         exit(-1);
@@ -122,7 +123,7 @@ void listen_and_serve(server_t *server) {
                 if (!setup) {
                     /* We want to time out */
                     setup = 1;
-                    timeout = 5000;
+                    timeout = 1000;
                 }
             } else {
                 assert((size_t)events[ndx].data.fd < server->maxfd);

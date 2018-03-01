@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include "openflow.h"
 
@@ -82,7 +83,7 @@ void flush_write_queue(client_t *client) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 client->canwrite = 0;
             } else {
-                perror("write");
+                fprintf(stderr, "write(%d): %s", client->fd, strerror(errno));
                 close_client(client);
                 break;
             }

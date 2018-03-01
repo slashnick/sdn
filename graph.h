@@ -25,12 +25,12 @@ typedef struct {
     size_t max_vertex;
 } graph_t;
 
-typedef void(shortest_path_cb)(int, uint32_t, const void *);
+typedef void(shortest_path_cb)(int, uint32_t, void *);
 
 graph_t *init_graph(void);
 void add_vertex_sw(graph_t *, int);
 void add_edge_sw(graph_t *, int, uint32_t, int, uint32_t);
-void walk_shortest_path(graph_t *, int, uint32_t, const void *, uint8_t,
+void walk_shortest_path(graph_t *, int, uint32_t, void *, uint8_t,
                         shortest_path_cb);
 
 #endif /* GRAPH_H_ */
