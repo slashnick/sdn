@@ -6,12 +6,12 @@
 #include <unistd.h>
 #include "graph.h"
 #include "mst.h"
-#include "tree_set.h"
+#include "tree_map.h"
 
 client_t *of_clients = NULL;
 
 static graph_t *graph = NULL;
-static tree_set_t *seen_hosts = NULL;
+static tree_map_t *seen_hosts = NULL;
 static uint8_t setup_done = 0;
 
 enum ofp_type {
@@ -345,12 +345,12 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
         num_ports++;
     }
     for (node = client->ports; node != NULL; node = node->next) {
-        if (!ts_contains(client->sw_ports, node->port)) {
+        if (!tm_contains(client->sw_ports, node->port)) {
             num_ports++;
         }
     }
     gpack_length = sizeof(ofp_header_t) + sizeof(group_mod_t) +
-                       num_ports * (sizeof(bucket_t) + sizeof(action_output_t));
+                   num_ports * (sizeof(bucket_t) + sizeof(action_output_t));
     gpack = make_packet(OFPT_GROUP_MOD, gpack_length, 0);
     group_mod = (group_mod_t *)gpack->data;
 
@@ -373,7 +373,7 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
     }
     // Host ports
     for (node = client->ports; node != NULL; node = node->next) {
-        if (!ts_contains(client->sw_ports, node->port)) {
+        if (!tm_contains(client->sw_ports, node->port)) {
             bucket->len = htons(sizeof(bucket_t) + sizeof(action_output_t));
             bucket->watch_port = htonl(OFPP_ANY);
             bucket->watch_group = htonl(OFPP_ANY);
@@ -686,13 +686,13 @@ void handle_packet_in(client_t *client) {
     if (ntohl(*(uint32_t *)data) == SWITCH_POLL_MAGIC) {
         handle_poll(client, port_id, (const switch_poll_t *)data);
     } else if (setup_done) {
-        if (!ts_contains(client->sw_ports, port_id)) {
+        if (!tm_contains(client->sw_ports, port_id)) {
             /* Put the mac address in the lower 6 bytes of mac */
             mac = ((uint64_t)data[6] << 40) | ((uint64_t)data[7] << 32) |
                   ((uint64_t)data[8] << 24) | ((uint64_t)data[9] << 16) |
                   ((uint64_t)data[10] << 8) | data[11];
-            if (!ts_contains(seen_hosts, mac)) {
-                seen_hosts = ts_insert(seen_hosts, mac);
+            if (!tm_contains(seen_hosts, mac)) {
+                seen_hosts = tm_set(seen_hosts, mac, 0);
                 walk_shortest_path(graph, client->fd, port_id, &data[6], 0,
                                    add_unicast_rule);
             }
@@ -774,5 +774,5 @@ void send_poll(client_t *client, uint32_t port) {
 void handle_poll(client_t *client, uint32_t port,
                  const switch_poll_t *switch_poll) {
     add_edge_sw(graph, client->fd, port, switch_poll->fd, switch_poll->port_id);
-    client->sw_ports = ts_insert(client->sw_ports, port);
+    client->sw_ports = tm_set(client->sw_ports, port, 0);
 }

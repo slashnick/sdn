@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "mst.h"
-#include "tree_set.h"
+#include "tree_map.h"
 
 typedef struct {
     uint8_t version;
@@ -33,7 +33,7 @@ typedef struct {
     ofp_header_t *cur_packet;
     queued_write_t *write_queue_head;
     queued_write_t *write_queue_tail;
-    tree_set_t *sw_ports;
+    tree_map_t *sw_ports;
     port_list_t *ports;
     uint8_t uid[8];
     uint8_t canwrite;

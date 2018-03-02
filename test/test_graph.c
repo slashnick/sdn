@@ -1,15 +1,15 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "graph.h"
+#include "../graph.h"
 
-static void print_visit(int sw, uint32_t port, const void *host) {
+static void print_visit(int sw, uint32_t port, void *host) {
     const char *host_name = (const char *)host;
 
     printf("S%d -> %s: port %d\n", sw, host_name, port);
 }
 
-static void mst_visit(int sw, uint32_t port, const void *_ignore) {
+static void mst_visit(int sw, uint32_t port, void *_ignore) {
     printf("S%d p%d\n", sw, port);
 }
 
