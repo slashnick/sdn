@@ -1,11 +1,13 @@
 CC = clang
+CXX = clang++
 CFLAGS = -Weverything -Werror -Wno-padded -Wno-packed -Wno-missing-noreturn \
          -Wno-cast-align -Wno-unused-parameter -g
+CXXFLAGS = -Wall -Werror
+LD = clang++
 
-SOURCES = sdn.c event.c event.h client.c client.h graph.c graph.h mst.c mst.h \
-          openflow.c openflow.h tree_map.c tree_map.h \
-		  test/test_graph.c test/test_tree_map.c
-OBJECTS = sdn.o event.o client.o graph.o mst.o openflow.o tree_map.o
+SOURCES = sdn.cpp event.c event.h client.c client.h graph.c graph.h map.cpp \
+          map.h mst.c mst.h openflow.c openflow.h test/test_graph.c
+OBJECTS = sdn.o event.o client.o graph.o map.o mst.o openflow.o
 TARGET = sdn
 
 .PHONY: all clean format test
@@ -13,17 +15,15 @@ TARGET = sdn
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
+	$(LD) $^ -o $@
 
 clean:
-	-rm -rf $(TARGET) *.dSYM *.o test/*.o test_graph test_tree_map
+	-rm -rf $(TARGET) *.dSYM *.o test/*.o test_graph
 
 format:
 	clang-format -i $(SOURCES)
 
 test_graph: test/test_graph.o graph.o
-	$(CC) $(CFLAGS) $^ -o $@
-
-test_tree_map: test/test_tree_map.o tree_map.o
 	$(CC) $(CFLAGS) $^ -o $@
 
 test: $(TARGET)

@@ -1,0 +1,16 @@
+SDN Controller
+CPE 465 (Advanced Computer Networks)
+Nicholas Frost
+
+Full project implemented, developed primarily against mininet
+
+Notes:
+- A good amount of event.c:listen_and_serve is straight from epoll(7)
+
+client.c - Low-level I/O logic for reading and writing OFP packets to clients
+event.c - epoll event loop, with a priority queue for time-scheduled events
+graph.c - Graph data structure, with 
+map.cpp - C bindings to C++'s std::map
+mst.c - Code to build the minimum spanning tree
+openflow.c - Main controller logic
+sdn.cpp - main()
