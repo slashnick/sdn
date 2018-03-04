@@ -20,9 +20,7 @@ map_val_t map_get(const void* map, uint64_t key) {
     const Map* m = reinterpret_cast<const Map*>(map);
     Map::const_iterator search = m->find(key);
     if (search != m->end()) {
-        map_val_t val;
-        val.u64 = search->first;
-        return val;
+        return search->second;
     } else {
         return empty_val;
     }

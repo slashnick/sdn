@@ -8,10 +8,19 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include "client.h"
+#include "map.h"
 #include "openflow.h"
 
+typedef struct {
+    event_handler_t handler;
+    void *arg;
+} time_event_t;
+
+static uint64_t current_time_ms(void);
+static void handle_time_events(server_t *);
 static void nonblock(int);
 
 void init_server(server_t *server, uint16_t port) {
@@ -49,6 +58,7 @@ void init_server(server_t *server, uint16_t port) {
     server->fd = sock;
     server->maxfd = 127;
     server->clients = malloc((server->maxfd + 1) * sizeof(client_t));
+    server->time_events = map_create();
     of_clients = server->clients;
     if (server->clients == NULL) {
         perror("malloc");
@@ -56,10 +66,19 @@ void init_server(server_t *server, uint16_t port) {
     }
 }
 
+/* Return the number of milliseconds since EPOCH */
+uint64_t current_time_ms(void) {
+    struct timeval tv;
+
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000 + (uint64_t)tv.tv_usec / 1000;
+}
+
 void listen_and_serve(server_t *server) {
 #define MAX_EVENTS 10
     struct epoll_event ev, events[MAX_EVENTS];
-    int clientfd, ep, nfds, timeout = -1, setup = 0;
+    int clientfd, ep, nfds, timeout;
+    uint64_t now, next_event;
     size_t ndx;
     client_t *client;
 
@@ -79,15 +98,21 @@ void listen_and_serve(server_t *server) {
     }
 
     for (;;) {
+        // Time until next time-based event fires
+        timeout = -1;
+        if (!map_empty(server->time_events)) {
+            now = current_time_ms();
+            next_event = map_min(server->time_events);
+            if (now < next_event) {
+                timeout = (int)(next_event - now);
+            }
+        }
+
         if ((nfds = epoll_wait(ep, events, MAX_EVENTS, timeout)) < 0) {
             perror("epoll_wait");
             exit(-1);
         }
-        if (nfds == 0 && setup == 1) {
-            timeout = -1;
-            setup = 2;
-            finish_setup();
-        }
+        handle_time_events(server);
         for (ndx = 0; ndx < (size_t)nfds; ndx++) {
             if (events[ndx].data.fd == server->fd) {
                 if ((clientfd = accept(server->fd, NULL, NULL)) < 0) {
@@ -119,12 +144,6 @@ void listen_and_serve(server_t *server) {
 
                 client = &server->clients[clientfd];
                 init_client(client, clientfd);
-
-                if (!setup) {
-                    /* We want to time out */
-                    setup = 1;
-                    timeout = 1000;
-                }
             } else {
                 assert((size_t)events[ndx].data.fd < server->maxfd);
                 client = &server->clients[events[ndx].data.fd];
@@ -137,6 +156,50 @@ void listen_and_serve(server_t *server) {
                 flush_write_queue(client);
             }
         }
+    }
+}
+
+void schedule_event(server_t *server, uint64_t when_ms, event_handler_t handler,
+                    void *arg) {
+    uint64_t key;
+    map_val_t val;
+    time_event_t *event;
+
+    key = current_time_ms() + when_ms;
+    // This is fine.
+    while (map_contains(server, key)) {
+        key++;
+    }
+
+    if ((event = malloc(sizeof(time_event_t))) == NULL) {
+        perror("malloc");
+        exit(-1);
+    }
+    event->handler = handler;
+    event->arg = arg;
+
+    val.ptr = event;
+    map_set(server->time_events, key, val);
+}
+
+void handle_time_events(server_t *server) {
+    uint64_t now, next_event;
+    time_event_t *event;
+    event_handler_t handler;
+    void *arg;
+
+    now = current_time_ms();
+    while (!map_empty(server->time_events)) {
+        next_event = map_min(server->time_events);
+        if (next_event > now) {
+            break;
+        }
+        event = (time_event_t *)map_get(server->time_events, next_event).ptr;
+        handler = event->handler;
+        arg = event->arg;
+        free(event);
+        map_remove(server->time_events, next_event);
+        handler(arg);
     }
 }
 
