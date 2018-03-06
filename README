@@ -5,13 +5,11 @@ Nicholas Frost
 Full project implemented, developed primarily against mininet
 
 Notes:
-- A good amount of event.c:listen_and_serve is straight from epoll(7)
+- A good amount of event.cpp:listen_and_serve is straight from epoll(7)
 
 beacon.cpp - Switch-to-switch link discovery
-client.c - Low-level I/O logic for reading and writing OFP packets to clients
-event.c - epoll event loop, with a priority queue for time-scheduled events
-graph.c - Graph data structure, with 
-map.cpp - C bindings to C++'s std::map
-mst.c - Code to build the minimum spanning tree
-openflow.c - Main controller logic
+client.cpp - Low-level I/O logic for reading and writing OFP packets to clients
+event.cpp - epoll event loop, with a priority queue for time-scheduled events
+graph.cpp - Graph data structure, with shortest path and MST algorithms
+openflow.cpp - Main controller logic
 sdn.cpp - main()
