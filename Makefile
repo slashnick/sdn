@@ -1,13 +1,14 @@
-CC = clang
 CXX = clang++
-CFLAGS = -Weverything -Werror -Wno-padded -Wno-packed -Wno-missing-noreturn \
-         -Wno-cast-align -Wno-unused-parameter -g
-CXXFLAGS = -Wall -Werror
+CXXFLAGS = -std=c++11 -Weverything -Werror -Wno-packed -Wno-padded \
+           -Wno-c++98-compat -Wno-c99-extensions -Wno-missing-noreturn \
+		   -Wno-cast-align -Wno-old-style-cast -Wno-exit-time-destructors \
+		   -Wno-global-constructors -Wno-unused-function -Wno-unused-parameter \
+		   -Wno-unused-macros
 LD = clang++
 
-SOURCES = sdn.cpp event.c event.h client.c client.h graph.c graph.h map.cpp \
-          map.h mst.c mst.h openflow.c openflow.h test/test_graph.c
-OBJECTS = sdn.o event.o client.o graph.o map.o mst.o openflow.o
+SOURCES = beacon.cpp beacon.h client.cpp client.h event.cpp event.h graph.cpp \
+          graph.h openflow.cpp openflow.h sdn.cpp test/test_graph.cpp
+OBJECTS = beacon.o client.o event.o graph.o openflow.o sdn.o
 TARGET = sdn
 
 .PHONY: all clean format test
@@ -24,7 +25,7 @@ format:
 	clang-format -i $(SOURCES)
 
 test_graph: test/test_graph.o graph.o
-	$(CC) $(CFLAGS) $^ -o $@
+	$(LD) $^ -o $@
 
 test: $(TARGET)
 	test/run.sh

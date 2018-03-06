@@ -1,35 +1,27 @@
 #ifndef GRAPH_H_
 #define GRAPH_H_
 
-#include <stddef.h>
 #include <stdint.h>
+#include <map>
+#include <set>
 
-/* An edge from one switch to another switch */
-typedef struct {
-    int vertex;
-    uint32_t my_port;
-    uint32_t their_port;
-} edge_sw_t;
+typedef void(shortest_path_cb)(uint64_t, uint32_t, void *);
+typedef std::map<uint64_t, std::pair<uint32_t, uint32_t> > edges_t;
+typedef std::map<uint64_t, std::set<uint32_t> > MST;
 
-/* A switch vertex in the graph */
-typedef struct {
-    edge_sw_t *edges;
-    size_t size_edges; /* Number of edge_sw_t's that edges has space for */
-    size_t num_edges;
-    uint8_t present;
-} vertex_sw_t;
+class Graph {
+   public:
+    void add_vertex(uint64_t);
+    void add_edge(uint64_t, uint32_t, uint64_t, uint32_t);
+    uint8_t has_edge(uint64_t, uint64_t) const;
+    void walk_shortest_path(uint64_t, uint32_t, void *, uint8_t,
+                            shortest_path_cb) const;
+    MST* make_mst() const;
 
-typedef struct {
-    vertex_sw_t *vertices_sw; /* Array of switches */
-    size_t max_vertex;
-} graph_t;
-
-typedef void(shortest_path_cb)(int, uint32_t, void *);
-
-graph_t *init_graph(void);
-void add_vertex_sw(graph_t *, int);
-void add_edge_sw(graph_t *, int, uint32_t, int, uint32_t);
-void walk_shortest_path(graph_t *, int, uint32_t, void *, uint8_t,
-                        shortest_path_cb);
+   private:
+    std::map<uint64_t, edges_t *> vertices;
+    void add_single_edge(uint64_t, uint32_t, uint64_t, uint32_t);
+    edges_t *get_or_add_vertex(uint64_t);
+};
 
 #endif /* GRAPH_H_ */

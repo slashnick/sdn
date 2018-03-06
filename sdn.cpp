@@ -24,7 +24,7 @@ uint16_t socket_port(int sock) {
 }
 
 int main(int argc, const char *argv[]) {
-    server_t server;
+    Server server;
     long port;
 
     if (argc < 2) {
@@ -33,22 +33,21 @@ int main(int argc, const char *argv[]) {
     }
 
 #define MAX_PORT 65535
-    port = strtol(argv[1], NULL, 10);
+    port = strtol(argv[1], nullptr, 10);
     if (port < 0 || port > MAX_PORT) {
         fprintf(stderr, "%s: invalid port number\n", argv[1]);
         return 1;
     }
 
-    if (setvbuf(stdout, NULL, _IONBF, 0) != 0) {
+    if (setvbuf(stdout, nullptr, _IONBF, 0) != 0) {
         perror("setvbuf");
         return 0;
     }
 
-    init_openflow();
-    init_server(&server, (uint16_t)port);
+    server.open((uint16_t)port);
     printf("Listening on port %ld\n", port ? port : socket_port(server.fd));
-    listen_and_serve(&server);
-    close_server(&server);
+    server.listen_and_serve();
+    server.close_server();
 
     return 0;
 }

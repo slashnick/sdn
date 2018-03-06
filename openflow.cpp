@@ -1,17 +1,16 @@
 #include "openflow.h"
 #include <arpa/inet.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <set>
+#include <cstdio>
+#include "beacon.h"
 #include "graph.h"
-#include "map.h"
-#include "mst.h"
 
-client_t *of_clients = NULL;
-
-static graph_t *graph = NULL;
-static void *seen_hosts = NULL;
+static Graph graph;
+static std::set<uint64_t> seen_hosts;
+static std::map<uint64_t, Client*> client_table;
 static uint8_t setup_done = 0;
 
 enum ofp_type {
@@ -27,27 +26,19 @@ enum ofp_type {
     OFPT_FLOW_MOD = 14,
     OFPT_GROUP_MOD = 15,
     OFPT_MULTIPART_REQ = 18,
-    OFPT_MULTIPART_RES = 19,
+    OFPT_MULTIPART_RES = 19
 };
 
-enum port_reason {
-    PORT_ADD = 0,
-    PORT_DEL = 1,
-    PORT_MOD = 2,
-};
+enum port_reason { PORT_ADD = 0, PORT_DEL = 1, PORT_MOD = 2 };
 
-enum flow_mod_cmd {
-    FM_CMD_ADD = 0,
-};
+enum flow_mod_cmd { FM_CMD_ADD = 0 };
 
-enum ofp_oxm_class {
-    OFPXMC_OPENFLOW_BASIC = 0x8000,
-};
+enum ofp_oxm_class { OFPXMC_OPENFLOW_BASIC = 0x8000 };
 
 enum oxm_ofb_match_fields {
     OFPXMT_OFB_IN_PORT = 0,
     OFPXMT_OFB_ETH_DST = 3,
-    OFPXMT_OFB_ETH_SRC = 4,
+    OFPXMT_OFB_ETH_SRC = 4
 };
 
 /* Can't make values larger than a signed int in ISO C */
@@ -60,25 +51,13 @@ enum oxm_ofb_match_fields {
 
 #define OFP_NO_BUFFER 0xffffffff
 
-#define SWITCH_POLL_MAGIC 0xb18a91a3
+enum match_type { OFPMT_OXM = 1 };
 
-enum match_type {
-    OFPMT_OXM = 1,
-};
+enum instr_write_type { OFPIT_GOTO_TABLE = 1, OFPIT_WRITE_ACTIONS = 3 };
 
-enum instr_write_type {
-    OFPIT_GOTO_TABLE = 1,
-    OFPIT_WRITE_ACTIONS = 3,
-};
+enum action_type { OFPAT_OUTPUT = 0, OFPAT_GROUP = 22 };
 
-enum action_type {
-    OFPAT_OUTPUT = 0,
-    OFPAT_GROUP = 22,
-};
-
-enum multipart_type {
-    OFPMP_PORT_DESC = 13,
-};
+enum multipart_type { OFPMP_PORT_DESC = 13 };
 
 typedef struct {
     uint16_t type;
@@ -86,7 +65,8 @@ typedef struct {
 } __attribute__((packed)) ofp_error_t;
 
 typedef struct {
-    uint8_t datapath_id[8];
+    uint32_t datapath_id1;
+    uint32_t datapath_id2;
     uint32_t n_buffers;
     uint8_t n_tables;
     uint8_t auxiliary_id;
@@ -94,13 +74,6 @@ typedef struct {
     uint32_t capabilities;
     uint32_t actions;
 } __attribute__((packed)) switch_features_t;
-
-typedef struct {
-    uint32_t magic;
-    int fd;
-    uint32_t port_id;
-    uint8_t _pad[4];
-} __attribute__((packed)) switch_poll_t;
 
 typedef struct {
     uint16_t type;
@@ -215,48 +188,32 @@ typedef struct {
 } __attribute__((packed)) port_status_t;
 
 static ofp_header_t *make_packet(uint8_t, uint16_t, uint32_t);
-static void setup_table_miss(client_t *);
+static void setup_table_miss(Client *);
 static void setup_broadcast(void);
-static void add_broadcast_rule(int, const port_list_t *);
-static void add_unicast_rule(int, uint32_t, void *);
-static void add_source_mac_rule(client_t *, const void *);
-static void add_dest_mac_rule(client_t *, const void *, uint32_t);
-static void send_packet_out(client_t *, uint32_t, const void *, uint16_t);
-static void handle_hello(client_t *);
-static void handle_error(client_t *);
-static void handle_feature_res(client_t *);
-static void handle_multipart_res(client_t *);
-static void handle_echo_req(client_t *);
-static void handle_packet_in(client_t *);
-static void handle_port_status(client_t *);
-static void send_poll(client_t *, uint32_t);
-static void handle_poll(client_t *, uint32_t, const switch_poll_t *);
+static void add_broadcast_rule(uint64_t, const std::set<uint32_t>*);
+static void add_unicast_rule(uint64_t, uint32_t, void *);
+static void add_source_mac_rule(Client *, const void *);
+static void add_dest_mac_rule(Client *, const void *, uint32_t);
+static void send_packet_out(Client *, uint32_t, const void *, uint16_t);
+static void handle_hello(Client *);
+static void handle_error(Client *);
+static void handle_feature_res(Client *);
+static void handle_multipart_res(Client *);
+static void handle_echo_req(Client *);
+static void handle_packet_in(Client *);
+static void handle_port_status(Client *);
 
-void init_openflow(void) {
-    if (graph != NULL) {
-        fprintf(stderr, "init_openflow() should only be called once\n");
-        exit(-1);
-    }
-    graph = init_graph();
-    seen_hosts = map_create();
-}
-
-void init_connection(client_t *client) {
+void init_connection(Client *client) {
     ofp_header_t *hello;
 
-    add_vertex_sw(graph, client->fd);
+    client_table[client->uid] = client;
+    graph.add_vertex(client->uid);
     hello = make_packet(OFPT_HELLO, sizeof(ofp_header_t), 666);
-    client_write(client, hello, sizeof(ofp_header_t));
+    client->write_packet(hello, sizeof(ofp_header_t));
     setup_table_miss(client);
 }
 
-void finish_setup(void) {
-    setup_done = 1;
-    printf("Setup phase finished\n");
-    setup_broadcast();
-}
-
-void setup_table_miss(client_t *client) {
+void setup_table_miss(Client *client) {
     ofp_header_t *pack;
     flow_mod_t *flow_mod;
     match_t *match;
@@ -268,10 +225,10 @@ void setup_table_miss(client_t *client) {
                       sizeof(action_output_t) + sizeof(instr_goto_t);
 
     pack = make_packet(OFPT_FLOW_MOD, length, 0x1234321);
-    flow_mod = (flow_mod_t *)pack->data;
+    flow_mod = (flow_mod_t*)pack->data;
     match = flow_mod->match;
-    instr2 = (instr_goto_t *)((uint8_t *)match + sizeof(match_t));
-    instr1 = (instr_write_t *)(instr2 + 1);
+    instr2 = (instr_goto_t*)((uint8_t*)match + sizeof(match_t));
+    instr1 = (instr_write_t*)(instr2 + 1);
     action = instr1->actions;
 
     /* Add a rule */
@@ -296,38 +253,22 @@ void setup_table_miss(client_t *client) {
     instr2->length = htons(sizeof(instr_goto_t));
     instr2->table_id = 1;
 
-    client_write(client, pack, length);
+    client->write_packet(pack, length);
 }
 
 void setup_broadcast(void) {
-    port_list_t **mst;
-    int firstfd, fd;
-
-    // Find the first fd that's valid
-    for (firstfd = 0; (size_t)firstfd <= graph->max_vertex; firstfd++) {
-        // I am breaking the abstraction here. Sorry
-        if (graph->vertices_sw[firstfd].present) {
-            break;
-        }
-    }
-    if ((size_t)firstfd > graph->max_vertex) {
-        return;
+    MST* mst = graph.make_mst();
+    MST::iterator vertex_it;
+    for (vertex_it = mst->begin(); vertex_it != mst->end(); vertex_it++) {
+        add_broadcast_rule(vertex_it->first, &vertex_it->second);
     }
 
-    mst = init_mst(graph->max_vertex);
-    walk_shortest_path(graph, firstfd, IGNORE_LINK, mst, 1, add_mst_edge);
-
-    for (fd = 0; (size_t)fd <= graph->max_vertex; fd++) {
-        if (graph->vertices_sw[fd].present) {
-            add_broadcast_rule(fd, mst[fd]);
-        }
-    }
-
-    free_mst(mst, graph->max_vertex);
+    delete mst;
 }
 
-void add_broadcast_rule(int clientfd, const port_list_t *ports) {
-    client_t *client;
+void add_broadcast_rule(uint64_t switch_id, const std::set<uint32_t>* ports) {
+    /*
+    Client* client;
     ofp_header_t *pack, *gpack;
     group_mod_t *group_mod;
     bucket_t *bucket;
@@ -342,10 +283,10 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
     client = &of_clients[clientfd];
 
     num_ports = 0;
-    for (node = ports; node != NULL; node = node->next) {
+    for (node = ports; node != nullptr; node = node->next) {
         num_ports++;
     }
-    for (node = client->ports; node != NULL; node = node->next) {
+    for (node = client->ports; node != nullptr; node = node->next) {
         if (!map_contains(client->sw_ports, node->port)) {
             num_ports++;
         }
@@ -359,7 +300,7 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
 
     // MST switch ports
     bucket = group_mod->buckets;
-    for (node = ports; node != NULL; node = node->next) {
+    for (node = ports; node != nullptr; node = node->next) {
         bucket->len = htons(sizeof(bucket_t) + sizeof(action_output_t));
         bucket->watch_port = htonl(OFPP_ANY);
         bucket->watch_group = htonl(OFPP_ANY);
@@ -373,7 +314,7 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
         bucket = (bucket_t *)(action + 1);
     }
     // Host ports
-    for (node = client->ports; node != NULL; node = node->next) {
+    for (node = client->ports; node != nullptr; node = node->next) {
         if (!map_contains(client->sw_ports, node->port)) {
             bucket->len = htons(sizeof(bucket_t) + sizeof(action_output_t));
             bucket->watch_port = htonl(OFPP_ANY);
@@ -389,7 +330,7 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
         }
     }
 
-    client_write(client, gpack, gpack_length);
+    client->write_packet(gpack, gpack_length);
 
     packet_length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
                     sizeof(match_t) + sizeof(instr_write_t) +
@@ -418,23 +359,17 @@ void add_broadcast_rule(int clientfd, const port_list_t *ports) {
     action_g->length = htons(sizeof(action_group_t));
     action_g->group_id = htonl(BCAST_GROUP_ID);
 
-    client_write(client, pack, packet_length);
+    client->write_packet(pack, packet_length);
+    */
 }
 
-void add_unicast_rule(int clientfd, uint32_t port, void *mac) {
-    /*
-     * I also need to add a table-miss on table 0 that sends us to table 1, and
-     *   outputs to controller
-     */
-
-    client_t *client;
-
-    client = &of_clients[clientfd];
+void add_unicast_rule(uint64_t uid, uint32_t port, void *mac) {
+    Client *client = client_table[uid];
     add_source_mac_rule(client, mac);
     add_dest_mac_rule(client, mac, port);
 }
 
-void add_source_mac_rule(client_t *client, const void *mac) {
+void add_source_mac_rule(Client *client, const void *mac) {
     ofp_header_t *pack;
     flow_mod_t *flow_mod;
     match_t *match;
@@ -444,7 +379,7 @@ void add_source_mac_rule(client_t *client, const void *mac) {
                       sizeof(match_t) + 8 + sizeof(instr_goto_t);
 
     pack = make_packet(OFPT_FLOW_MOD, length, 0);
-    flow_mod = (flow_mod_t *)pack->data;
+    flow_mod = (flow_mod_t *)(pack->data);
     match = flow_mod->match;
     instr = (instr_goto_t *)((uint8_t *)match + sizeof(match_t) + 8);
 
@@ -466,10 +401,10 @@ void add_source_mac_rule(client_t *client, const void *mac) {
     instr->length = htons(sizeof(instr_goto_t));
     instr->table_id = 1;
 
-    client_write(client, pack, length);
+    client->write_packet(pack, length);
 }
 
-void add_dest_mac_rule(client_t *client, const void *mac, uint32_t port_id) {
+void add_dest_mac_rule(Client *client, const void *mac, uint32_t port_id) {
     ofp_header_t *pack;
     flow_mod_t *flow_mod;
     match_t *match;
@@ -483,7 +418,7 @@ void add_dest_mac_rule(client_t *client, const void *mac, uint32_t port_id) {
     pack = make_packet(OFPT_FLOW_MOD, length, 0);
     flow_mod = (flow_mod_t *)pack->data;
     match = flow_mod->match;
-    instr = (instr_write_t *)((uint8_t *)match + sizeof(match_t) + 8);
+    instr = (instr_write_t*)((uint8_t*)match + sizeof(match_t) + 8);
     action = instr->actions;
 
     /* Add a rule */
@@ -509,10 +444,10 @@ void add_dest_mac_rule(client_t *client, const void *mac, uint32_t port_id) {
     action->port = htonl(port_id);
     action->max_len = htons(0xffff);
 
-    client_write(client, pack, length);
+    client->write_packet(pack, length);
 }
 
-void handle_ofp_packet(client_t *client) {
+void handle_ofp_packet(Client *client) {
     switch (client->cur_packet->type) {
         case OFPT_HELLO:
             handle_hello(client);
@@ -543,10 +478,10 @@ void handle_ofp_packet(client_t *client) {
 }
 
 /* Caller is responsible for freeing this pointer */
-ofp_header_t *make_packet(uint8_t type, uint16_t length, uint32_t xid) {
-    ofp_header_t *hdr;
+ofp_header_t* make_packet(uint8_t type, uint16_t length, uint32_t xid) {
+    ofp_header_t* hdr;
 
-    if ((hdr = calloc(1, length)) == NULL) {
+    if ((hdr = (ofp_header_t*)calloc(1, length)) == nullptr) {
         perror("calloc");
         exit(-1);
     }
@@ -559,14 +494,14 @@ ofp_header_t *make_packet(uint8_t type, uint16_t length, uint32_t xid) {
     return hdr;
 }
 
-void handle_hello(client_t *client) {
+void handle_hello(Client *client) {
     ofp_header_t *res;
 
     res = make_packet(OFPT_FEATURE_REQ, sizeof(ofp_header_t), 777);
-    client_write(client, res, sizeof(ofp_header_t));
+    client->write_packet(res, sizeof(ofp_header_t));
 }
 
-void handle_error(client_t *client) {
+void handle_error(Client *client) {
     const ofp_error_t *err;
 
     err = (ofp_error_t *)client->cur_packet->data;
@@ -588,7 +523,7 @@ void handle_error(client_t *client) {
     }
 }
 
-void handle_feature_res(client_t *client) {
+void handle_feature_res(Client *client) {
     const switch_features_t *features;
     ofp_header_t *mp_pack;
     multipart_t *req;
@@ -599,7 +534,8 @@ void handle_feature_res(client_t *client) {
     }
     features = (switch_features_t *)client->cur_packet->data;
 
-    memcpy(client->uid, features->datapath_id, sizeof(client->uid));
+    client->uid = ((uint64_t)ntohl(features->datapath_id1) << 32) |
+                  ntohl(features->datapath_id2);
 
     // Send a multipart port stats request
     mp_pack = make_packet(OFPT_MULTIPART_REQ,
@@ -607,16 +543,15 @@ void handle_feature_res(client_t *client) {
     req = (multipart_t *)mp_pack->data;
     memset(req, 0, sizeof(multipart_t));
     req->type = htons(OFPMP_PORT_DESC);
-    client_write(client, mp_pack, sizeof(ofp_header_t) + sizeof(multipart_t));
+    client->write_packet(mp_pack, sizeof(ofp_header_t) + sizeof(multipart_t));
 }
 
-void handle_multipart_res(client_t *client) {
+void handle_multipart_res(Client *client) {
     multipart_t *mp;
     port_t *ports;
     size_t ndx, num_ports;
     char port_name[16];
     uint32_t port_id;
-    port_list_t *port_node;
 
     mp = (multipart_t *)client->cur_packet->data;
     if (ntohs(mp->type) != OFPMP_PORT_DESC) {
@@ -631,19 +566,13 @@ void handle_multipart_res(client_t *client) {
         snprintf(port_name, sizeof(port_name), "%s", ports[ndx].name);
         port_id = ntohl(ports[ndx].port_id);
         if (port_id <= OFPP_MAX) {
+            client->ports.insert(port_id);
             send_poll(client, ntohl(ports[ndx].port_id));
-            if ((port_node = malloc(sizeof(port_list_t))) == NULL) {
-                perror("malloc");
-                exit(-1);
-            }
-            port_node->port = port_id;
-            port_node->next = client->ports;
-            client->ports = port_node;
         }
     }
 }
 
-void handle_echo_req(client_t *client) {
+void handle_echo_req(Client *client) {
     const ofp_header_t *req;
     ofp_header_t *res;
     uint16_t length;
@@ -656,10 +585,10 @@ void handle_echo_req(client_t *client) {
     res = make_packet(OFPT_ECHO_RES, length, client->cur_packet->xid);
     memcpy(res->data, req->data, length - sizeof(ofp_header_t));
 
-    client_write(client, res, length);
+    client->write_packet(res, length);
 }
 
-void handle_packet_in(client_t *client) {
+void handle_packet_in(Client *client) {
     packet_in_t *pack;
     match_t *match;
     uint32_t *fields;
@@ -684,24 +613,24 @@ void handle_packet_in(client_t *client) {
     }
 
     port_id = ntohl(fields[1]);
-    if (ntohl(*(uint32_t *)data) == SWITCH_POLL_MAGIC) {
-        handle_poll(client, port_id, (const switch_poll_t *)data);
+    if (!memcmp(data, SWITCH_POLL_MAGIC, 6)) {
+        recv_poll(client, port_id, data);
     } else if (setup_done) {
-        if (!map_contains(client->sw_ports, port_id)) {
+        if (client->sw_ports.find(port_id) == client->sw_ports.end()) {
             /* Put the mac address in the lower 6 bytes of mac */
             mac = ((uint64_t)data[6] << 40) | ((uint64_t)data[7] << 32) |
                   ((uint64_t)data[8] << 24) | ((uint64_t)data[9] << 16) |
                   ((uint64_t)data[10] << 8) | data[11];
-            if (!map_contains(seen_hosts, mac)) {
-                map_set(seen_hosts, mac, empty_val);
-                walk_shortest_path(graph, client->fd, port_id, &data[6], 0,
-                                   add_unicast_rule);
+            if (seen_hosts.find(mac) == seen_hosts.end()) {
+                seen_hosts.insert(mac);
+                graph.walk_shortest_path(client->uid, port_id, &data[6], 0,
+                                         add_unicast_rule);
             }
         }
     }
 }
 
-void send_packet_out(client_t *client, uint32_t port, const void *data,
+void send_packet_out(Client *client, uint32_t port, const void *data,
                      uint16_t length) {
     ofp_header_t *hdr;
     packet_out_t *pack;
@@ -725,10 +654,10 @@ void send_packet_out(client_t *client, uint32_t port, const void *data,
 
     memcpy((uint8_t *)action + sizeof(action_output_t), data, length);
 
-    client_write(client, hdr, total_length);
+    client->write_packet(hdr, total_length);
 }
 
-void handle_port_status(client_t *client) {
+void handle_port_status(Client *client) {
     const port_status_t *pack;
     char port_name[16];
 
@@ -748,32 +677,4 @@ void handle_port_status(client_t *client) {
             }
             break;
     }
-}
-
-/*
- * Switch polling protocol
- * =======================
- *
- * On network startup, each switch will send out a poll packet to all connected
- * ports. The poll packets will be sent back to the controller by the switch on
- * the other side of the link.
- *
- * Poll packets are identified by the 4-byte magic value SWITCH_POLL_MAGIC.
- */
-
-void send_poll(client_t *client, uint32_t port) {
-    switch_poll_t switch_poll;
-
-    memset(&switch_poll, 0, sizeof(switch_poll));
-    switch_poll.magic = htonl(SWITCH_POLL_MAGIC);
-    switch_poll.fd = client->fd;
-    switch_poll.port_id = port;
-
-    send_packet_out(client, port, &switch_poll, sizeof(switch_poll));
-}
-
-void handle_poll(client_t *client, uint32_t port,
-                 const switch_poll_t *switch_poll) {
-    add_edge_sw(graph, client->fd, port, switch_poll->fd, switch_poll->port_id);
-    map_set(client->sw_ports, port, empty_val);
 }

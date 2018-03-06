@@ -1,30 +1,42 @@
 #ifndef EVENT_H_
 #define EVENT_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "client.h"
 
 #include <stdint.h>
 #include <stdlib.h>
-#include "client.h"
+#include <map>
 
-typedef struct {
-    size_t maxfd;
-    client_t *clients;
-    void *time_events;
+typedef void (*event_handler_t)(void* arg);
+
+// Time-based event
+class Event {
+   public:
+    event_handler_t handler;
+    void* arg;
+    uint64_t when;
+    Event(event_handler_t, void*, uint64_t);
+};
+
+class CompareEvents {
+   public:
+    bool operator()(const Event a, const Event b) {
+        return a.when > b.when;
+    }
+};
+
+class Server {
+   public:
+    void open(uint16_t);
+    void listen_and_serve(void);
+    void schedule_event(uint64_t, event_handler_t, void*);
+    void close_server();
     int fd;
-} server_t;
 
-typedef void (*event_handler_t)(void *arg);
-
-void init_server(server_t *, uint16_t);
-void listen_and_serve(server_t *);
-void schedule_event(server_t *, uint64_t, event_handler_t, void *);
-void close_server(server_t *);
-
-#ifdef __cplusplus
-}
-#endif
+   private:
+    std::map<int, Client*> clients;
+    std::priority_queue<Event, std::vector<Event>, CompareEvents> time_events;
+    void handle_time_events(void);
+};
 
 #endif /* EVENT_H_ */

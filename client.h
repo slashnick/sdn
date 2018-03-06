@@ -1,13 +1,9 @@
 #ifndef CLIENT_H_
 #define CLIENT_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
-#include <stdlib.h>
-#include "mst.h"
+#include <queue>
+#include <set>
 
 typedef struct {
     uint8_t version;
@@ -17,39 +13,43 @@ typedef struct {
     uint8_t data[];
 } __attribute__((packed)) ofp_header_t;
 
-typedef struct queued_write {
-    struct queued_write *next;
-    uint8_t *data;
+class Write {
+   public:
+    uint8_t* data;
     uint16_t pos;
     uint16_t size;
-} queued_write_t;
+    Write(uint8_t*, uint16_t);
+};
 
 /*
  * Clients are state machines. A client is either waiting to receive a header,
  * or it is waiting to receive a packet.
- * It is always known how many bytes a client has to receive for this state.
+ * It is always known how many bytes a client has to receive for a given state.
  */
-typedef struct {
+class Client {
+   public:
+    Client(int, void*);
+    void init();
+    void write_packet(void*, uint16_t);
+    void handle_read_event();
+    void flush_write_queue();
+    uint64_t uid;
+    ofp_header_t* cur_packet;
+    uint8_t canwrite;
+    std::set<uint32_t> ports;
+    std::set<uint32_t> sw_ports;
+
+   private:
+    void handle_header();
+    void handle_packet();
+    int read_into_buffer();
+    void close_client();
     int fd;
     uint16_t bufsize;
     uint16_t pos;
-    ofp_header_t *cur_packet;
-    queued_write_t *write_queue_head;
-    queued_write_t *write_queue_tail;
-    void *sw_ports;
-    port_list_t *ports;
-    uint8_t uid[8];
-    uint8_t canwrite;
+    void* server;
+    std::queue<Write*> write_queue;
     uint8_t state;
-} client_t;
-
-void init_client(client_t *, int);
-void client_write(client_t *, void *, uint16_t);
-void handle_read_event(client_t *);
-void flush_write_queue(client_t *);
-
-#ifdef __cplusplus
-}
-#endif
+};
 
 #endif /* CLIENT_H_ */

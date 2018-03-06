@@ -1,21 +1,10 @@
 #ifndef OPENFLOW_H_
 #define OPENFLOW_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "client.h"
 
-extern client_t *of_clients;
-
-void init_openflow(void);
-void init_connection(client_t *);
-void handle_ofp_packet(client_t *);
-void finish_setup(void);
-
-#ifdef __cplusplus
-}
-#endif
+void init_connection(Client *);
+void handle_ofp_packet(Client *);
+void finish_setup();
 
 #endif /* OPENFLOW_H_ */
