@@ -85,7 +85,7 @@ void Graph::walk_shortest_path(uint64_t start, uint32_t start_port, void* data,
 
 void add_mst_edge(uint64_t vertex, uint32_t port, void* mst) {
     MST* m = reinterpret_cast<MST*>(mst);
-    
+
     if (port == IGNORE_EDGE) {
         // The "start port" for an MST is meaningless to us
         return;

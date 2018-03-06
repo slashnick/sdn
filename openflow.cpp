@@ -3,14 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <set>
 #include <cstdio>
+#include <set>
 #include "beacon.h"
 #include "graph.h"
 
 static Graph graph;
 static std::set<uint64_t> seen_hosts;
-static std::map<uint64_t, Client*> client_table;
+static std::map<uint64_t, Client *> client_table;
 static uint8_t setup_done = 0;
 
 enum ofp_type {
@@ -190,7 +190,7 @@ typedef struct {
 static ofp_header_t *make_packet(uint8_t, uint16_t, uint32_t);
 static void setup_table_miss(Client *);
 static void setup_broadcast(void);
-static void add_broadcast_rule(uint64_t, const std::set<uint32_t>*);
+static void add_broadcast_rule(uint64_t, const std::set<uint32_t> *);
 static void add_unicast_rule(uint64_t, uint32_t, void *);
 static void add_source_mac_rule(Client *, const void *);
 static void add_dest_mac_rule(Client *, const void *, uint32_t);
@@ -225,10 +225,10 @@ void setup_table_miss(Client *client) {
                       sizeof(action_output_t) + sizeof(instr_goto_t);
 
     pack = make_packet(OFPT_FLOW_MOD, length, 0x1234321);
-    flow_mod = (flow_mod_t*)pack->data;
+    flow_mod = (flow_mod_t *)pack->data;
     match = flow_mod->match;
-    instr2 = (instr_goto_t*)((uint8_t*)match + sizeof(match_t));
-    instr1 = (instr_write_t*)(instr2 + 1);
+    instr2 = (instr_goto_t *)((uint8_t *)match + sizeof(match_t));
+    instr1 = (instr_write_t *)(instr2 + 1);
     action = instr1->actions;
 
     /* Add a rule */
@@ -257,7 +257,7 @@ void setup_table_miss(Client *client) {
 }
 
 void setup_broadcast(void) {
-    MST* mst = graph.make_mst();
+    MST *mst = graph.make_mst();
     MST::iterator vertex_it;
     for (vertex_it = mst->begin(); vertex_it != mst->end(); vertex_it++) {
         add_broadcast_rule(vertex_it->first, &vertex_it->second);
@@ -266,7 +266,7 @@ void setup_broadcast(void) {
     delete mst;
 }
 
-void add_broadcast_rule(uint64_t switch_id, const std::set<uint32_t>* ports) {
+void add_broadcast_rule(uint64_t switch_id, const std::set<uint32_t> *ports) {
     /*
     Client* client;
     ofp_header_t *pack, *gpack;
@@ -418,7 +418,7 @@ void add_dest_mac_rule(Client *client, const void *mac, uint32_t port_id) {
     pack = make_packet(OFPT_FLOW_MOD, length, 0);
     flow_mod = (flow_mod_t *)pack->data;
     match = flow_mod->match;
-    instr = (instr_write_t*)((uint8_t*)match + sizeof(match_t) + 8);
+    instr = (instr_write_t *)((uint8_t *)match + sizeof(match_t) + 8);
     action = instr->actions;
 
     /* Add a rule */
@@ -478,10 +478,10 @@ void handle_ofp_packet(Client *client) {
 }
 
 /* Caller is responsible for freeing this pointer */
-ofp_header_t* make_packet(uint8_t type, uint16_t length, uint32_t xid) {
-    ofp_header_t* hdr;
+ofp_header_t *make_packet(uint8_t type, uint16_t length, uint32_t xid) {
+    ofp_header_t *hdr;
 
-    if ((hdr = (ofp_header_t*)calloc(1, length)) == nullptr) {
+    if ((hdr = (ofp_header_t *)calloc(1, length)) == nullptr) {
         perror("calloc");
         exit(-1);
     }

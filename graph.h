@@ -16,7 +16,7 @@ class Graph {
     uint8_t has_edge(uint64_t, uint64_t) const;
     void walk_shortest_path(uint64_t, uint32_t, void *, uint8_t,
                             shortest_path_cb) const;
-    MST* make_mst() const;
+    MST *make_mst() const;
 
    private:
     std::map<uint64_t, edges_t *> vertices;
