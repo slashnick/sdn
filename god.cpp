@@ -37,8 +37,8 @@ void god_function(Server* server) {
     old_mst = mst;
 }
 
-void add_non_switch_ports(Client* client, Graph* graph, std::set<uint32_t>*
-ports) {
+void add_non_switch_ports(Client* client, Graph* graph,
+                          std::set<uint32_t>* ports) {
     std::set<uint32_t>::const_iterator it;
     for (it = client->ports.begin(); it != client->ports.end(); it++) {
         if (!graph->has_any_edge(client->uid, *it)) {

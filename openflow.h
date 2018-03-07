@@ -8,10 +8,7 @@
 extern std::set<uint64_t> seen_hosts;
 extern std::map<uint64_t, Client *> client_table;
 
-enum ofp_group_mod_command {
-    OFPGC_ADD = 0,
-    OFPGC_MODIFY = 1
-};
+enum ofp_group_mod_command { OFPGC_ADD = 0, OFPGC_MODIFY = 1 };
 
 void init_connection(Client *);
 void handle_ofp_packet(Client *);
