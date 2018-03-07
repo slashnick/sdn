@@ -6,11 +6,11 @@
 #include <cstdio>
 #include <set>
 #include "beacon.h"
+#include "event.h"
 #include "graph.h"
 
-static Graph graph;
 static std::set<uint64_t> seen_hosts;
-static std::map<uint64_t, Client *> client_table;
+std::map<uint64_t, Client *> client_table;
 static uint8_t setup_done = 0;
 
 enum ofp_type {
@@ -189,12 +189,11 @@ typedef struct {
 
 static ofp_header_t *make_packet(uint8_t, uint16_t, uint32_t);
 static void setup_table_miss(Client *);
-static void setup_broadcast(void);
+static void setup_broadcast(Server *);
 static void add_broadcast_rule(uint64_t, const std::set<uint32_t> *);
 static void add_unicast_rule(uint64_t, uint32_t, void *);
 static void add_source_mac_rule(Client *, const void *);
 static void add_dest_mac_rule(Client *, const void *, uint32_t);
-static void send_packet_out(Client *, uint32_t, const void *, uint16_t);
 static void handle_hello(Client *);
 static void handle_error(Client *);
 static void handle_feature_res(Client *);
@@ -206,8 +205,6 @@ static void handle_port_status(Client *);
 void init_connection(Client *client) {
     ofp_header_t *hello;
 
-    client_table[client->uid] = client;
-    graph.add_vertex(client->uid);
     hello = make_packet(OFPT_HELLO, sizeof(ofp_header_t), 666);
     client->write_packet(hello, sizeof(ofp_header_t));
     setup_table_miss(client);
@@ -256,8 +253,8 @@ void setup_table_miss(Client *client) {
     client->write_packet(pack, length);
 }
 
-void setup_broadcast(void) {
-    MST *mst = graph.make_mst();
+void setup_broadcast(Server *server) {
+    MST *mst = server->graph.make_mst();
     MST::iterator vertex_it;
     for (vertex_it = mst->begin(); vertex_it != mst->end(); vertex_it++) {
         add_broadcast_rule(vertex_it->first, &vertex_it->second);
@@ -536,6 +533,10 @@ void handle_feature_res(Client *client) {
 
     client->uid = ((uint64_t)ntohl(features->datapath_id1) << 32) |
                   ntohl(features->datapath_id2);
+    // Now that we have a client UID, add the client to the graph
+    Graph *graph = &((Server *)client->server)->graph;
+    graph->add_vertex(client->uid);
+    client_table[client->uid] = client;
 
     // Send a multipart port stats request
     mp_pack = make_packet(OFPT_MULTIPART_REQ,
@@ -567,9 +568,9 @@ void handle_multipart_res(Client *client) {
         port_id = ntohl(ports[ndx].port_id);
         if (port_id <= OFPP_MAX) {
             client->ports.insert(port_id);
-            send_poll(client, ntohl(ports[ndx].port_id));
         }
     }
+    send_polls((void*)client);
 }
 
 void handle_echo_req(Client *client) {
@@ -623,8 +624,9 @@ void handle_packet_in(Client *client) {
                   ((uint64_t)data[10] << 8) | data[11];
             if (seen_hosts.find(mac) == seen_hosts.end()) {
                 seen_hosts.insert(mac);
-                graph.walk_shortest_path(client->uid, port_id, &data[6], 0,
-                                         add_unicast_rule);
+                Graph *graph = &((Server *)client->server)->graph;
+                graph->walk_shortest_path(client->uid, port_id, &data[6], 0,
+                                          add_unicast_rule);
             }
         }
     }
@@ -670,10 +672,11 @@ void handle_port_status(Client *client) {
 
     snprintf(port_name, sizeof(port_name), "%s", pack->port.name);
 
+    // TODO: this is like probably fine, we shouldn't poll
     switch (pack->reason) {
         case PORT_MOD:
             if (htonl(pack->port.port_id) <= OFPP_MAX) {
-                send_poll(client, ntohl(pack->port.port_id));
+                // send_poll(client, ntohl(pack->port.port_id), 1000);
             }
             break;
     }

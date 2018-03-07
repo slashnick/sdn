@@ -1,11 +1,11 @@
 #ifndef EVENT_H_
 #define EVENT_H_
 
-#include "client.h"
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <map>
+#include "client.h"
+#include "graph.h"
 
 typedef void (*event_handler_t)(void* arg);
 
@@ -31,6 +31,7 @@ class Server {
     void listen_and_serve(void);
     void schedule_event(uint64_t, event_handler_t, void*);
     void close_server();
+    Graph graph;  // network graph
     int fd;
 
    private:

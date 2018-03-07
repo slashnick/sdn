@@ -35,6 +35,7 @@ class Client {
     void flush_write_queue();
     uint64_t uid;
     ofp_header_t* cur_packet;
+    void* server;
     uint8_t canwrite;
     std::set<uint32_t> ports;
     std::set<uint32_t> sw_ports;
@@ -47,7 +48,6 @@ class Client {
     int fd;
     uint16_t bufsize;
     uint16_t pos;
-    void* server;
     std::queue<Write*> write_queue;
     uint8_t state;
 };
