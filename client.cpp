@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "event.h"
 #include "openflow.h"
 
 #define CLIENT_STATE_WAITING_HEADER 1
@@ -28,7 +29,7 @@ Client::Client(int f, void *s) {
     state = CLIENT_STATE_WAITING_HEADER;
     bufsize = sizeof(ofp_header_t);
     pos = 0;
-    cur_packet = static_cast<ofp_header_t *>(malloc(bufsize));
+    cur_packet = (ofp_header_t *)malloc(bufsize);
     if (cur_packet == nullptr) {
         perror("malloc");
         exit(-1);
@@ -75,23 +76,22 @@ void Client::flush_write_queue() {
     ssize_t status;
 
     while (canwrite && !write_queue.empty()) {
-        Write *w = write_queue.front();
-        status = write(fd, w->data + w->pos, w->size - w->pos);
+        Write w = write_queue.front();
+        status = write(fd, w.data + w.pos, w.size - w.pos);
         if (status < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 canwrite = 0;
             } else {
-                fprintf(stderr, "write(%d): %s", fd, strerror(errno));
+                fprintf(stderr, "write(%d): %s\n", fd, strerror(errno));
                 close_client();
                 break;
             }
         } else {
-            w->pos += status;
-            if (w->pos == w->size) {
+            w.pos += status;
+            if (w.pos == w.size) {
                 // Complete write. Dequeue
+                free(w.data);
                 write_queue.pop();
-                free(w->data);
-                delete w;
             }
         }
     }
@@ -102,7 +102,7 @@ void Client::handle_header() {
 
     if (cur_packet->length > sizeof(ofp_header_t)) {
         bufsize = cur_packet->length;
-        cur_packet = static_cast<ofp_header_t *>(realloc(cur_packet, bufsize));
+        cur_packet = (ofp_header_t *)realloc(cur_packet, bufsize);
         if (cur_packet == nullptr) {
             perror("realloc");
             exit(-1);
@@ -115,13 +115,14 @@ void Client::handle_header() {
 }
 
 void Client::handle_packet() {
+    // printf("got an OFP packet: type=%d\n", this->cur_packet->type);
     handle_ofp_packet(this);
 
     state = CLIENT_STATE_WAITING_HEADER;
     free(cur_packet);
     bufsize = sizeof(ofp_header_t);
     pos = 0;
-    cur_packet = static_cast<ofp_header_t *>(malloc(bufsize));
+    cur_packet = (ofp_header_t *)(malloc(bufsize));
     if (cur_packet == nullptr) {
         perror("malloc");
         exit(-1);
@@ -142,8 +143,7 @@ int Client::read_into_buffer() {
         return READ_COMPLETE;
     }
 
-    status =
-        read(fd, reinterpret_cast<uint8_t *>(cur_packet) + pos, bufsize - pos);
+    status = read(fd, (uint8_t *)cur_packet + pos, bufsize - pos);
     if (status < 0) {
         /* We should never continue past this if statement */
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -169,13 +169,14 @@ void Client::close_client() {
 
     /* Free any queued writes */
     while (!write_queue.empty()) {
-        Write *w = write_queue.front();
+        free(write_queue.front().data);
         write_queue.pop();
-        free(w->data);
-        delete w;
     }
 
     if (close(fd) < 0) {
         perror("close");
     }
+
+    Server *s = (Server *)server;
+    s->clients.erase(fd);
 }

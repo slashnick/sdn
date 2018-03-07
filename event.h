@@ -33,9 +33,9 @@ class Server {
     void close_server();
     Graph graph;  // network graph
     int fd;
+    std::map<int, Client*> clients;
 
    private:
-    std::map<int, Client*> clients;
     std::priority_queue<Event, std::vector<Event>, CompareEvents> time_events;
     void handle_time_events(void);
 };

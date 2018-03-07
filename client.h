@@ -48,7 +48,7 @@ class Client {
     int fd;
     uint16_t bufsize;
     uint16_t pos;
-    std::queue<Write*> write_queue;
+    std::queue<Write> write_queue;
     uint8_t state;
 };
 
