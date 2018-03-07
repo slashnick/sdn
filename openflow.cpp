@@ -570,7 +570,7 @@ void handle_multipart_res(Client *client) {
             client->ports.insert(port_id);
         }
     }
-    send_polls((void*)client);
+    send_polls((void *)client);
 }
 
 void handle_echo_req(Client *client) {
