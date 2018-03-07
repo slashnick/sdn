@@ -2,6 +2,7 @@
 #define CLIENT_H_
 
 #include <stdint.h>
+#include <map>
 #include <queue>
 #include <set>
 
@@ -38,7 +39,8 @@ class Client {
     void* server;
     uint8_t canwrite;
     std::set<uint32_t> ports;
-    std::set<uint32_t> sw_ports;
+    std::map<uint64_t, uint32_t> hosts;    // Directly-connected hosts
+    std::map<uint64_t, uint32_t> written;  // Switch's current next-hop
     uint8_t has_mst;
 
    private:

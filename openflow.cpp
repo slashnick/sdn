@@ -7,9 +7,9 @@
 #include <set>
 #include "beacon.h"
 #include "event.h"
+#include "god.h"
 #include "graph.h"
 
-std::set<uint64_t> seen_hosts;
 std::map<uint64_t, Client *> client_table;
 static uint8_t setup_done = 0;
 
@@ -30,8 +30,6 @@ enum ofp_type {
 };
 
 enum port_reason { PORT_ADD = 0, PORT_DEL = 1, PORT_MOD = 2 };
-
-enum flow_mod_cmd { FM_CMD_ADD = 0, FM_CMD_MODIFY = 1 };
 
 enum ofp_oxm_class { OFPXMC_OPENFLOW_BASIC = 0x8000 };
 
@@ -543,45 +541,43 @@ void handle_echo_req(Client *client) {
 }
 
 void handle_packet_in(Client *client) {
-    packet_in_t *pack;
-    match_t *match;
-    uint32_t *fields;
-    uint8_t *data;
-    uint32_t port_id;
-    uint64_t mac; /* We're going to cram an ethernet address into a long */
-
     if (client->cur_packet->length <
         sizeof(ofp_header_t) + sizeof(packet_in_t)) {
         fprintf(stderr, "packet_in too short\n");
         return;
     }
-    pack = (packet_in_t *)client->cur_packet->data;
-    match = &pack->match;
-    data =
+    packet_in_t *pack = (packet_in_t *)client->cur_packet->data;
+    match_t *match = &pack->match;
+    uint8_t *data =
         (uint8_t *)&pack->match + (ntohs(pack->match.length) + 7) / 8 * 8 + 2;
 
-    fields = (uint32_t *)match->oxm_fields;
+    uint32_t *fields = (uint32_t *)match->oxm_fields;
     /* We only care about PACKET_IN's that have the in port */
     if (((htonl(fields[0]) >> 9) & 0x7f) != OFPXMT_OFB_IN_PORT) {
         return;
     }
 
-    port_id = ntohl(fields[1]);
+    uint32_t port_id = ntohl(fields[1]);
     if (!memcmp(data, SWITCH_POLL_MAGIC, 6)) {
         recv_poll(client, port_id, data);
-    } else if (setup_done) {
-        if (client->sw_ports.find(port_id) == client->sw_ports.end()) {
-            /* Put the mac address in the lower 6 bytes of mac */
-            mac = ((uint64_t)data[6] << 40) | ((uint64_t)data[7] << 32) |
-                  ((uint64_t)data[8] << 24) | ((uint64_t)data[9] << 16) |
-                  ((uint64_t)data[10] << 8) | data[11];
-            if (seen_hosts.find(mac) == seen_hosts.end()) {
-                seen_hosts.insert(mac);
-                Graph *graph = &((Server *)client->server)->graph;
-                graph->walk_shortest_path(client->uid, port_id, &data[6], 0,
-                                          add_unicast_rule);
-            }
-        }
+        return;
+    }
+
+    Server *server = (Server *)client->server;
+    Graph *graph = &server->graph;
+    if (graph->has_any_edge(client->uid, port_id)) {
+        // Skip non-beacon PACKET_IN's from other switches
+        return;
+    }
+
+    /* Put the mac address in the lower 6 bytes of mac */
+    uint64_t mac = ((uint64_t)data[6] << 40) | ((uint64_t)data[7] << 32) |
+                   ((uint64_t)data[8] << 24) | ((uint64_t)data[9] << 16) |
+                   ((uint64_t)data[10] << 8) | data[11];
+
+    if (client->hosts[mac] != port_id) {
+        client->hosts[mac] = port_id;
+        god_function(server);
     }
 }
 
@@ -614,7 +610,6 @@ void send_packet_out(Client *client, uint32_t port, const void *data,
 
 void handle_port_status(Client *client) {
     const port_status_t *pack;
-    char port_name[16];
 
     if (client->cur_packet->length <
         sizeof(ofp_header_t) + sizeof(port_status_t)) {
@@ -622,8 +617,6 @@ void handle_port_status(Client *client) {
         return;
     }
     pack = (port_status_t *)client->cur_packet->data;
-
-    snprintf(port_name, sizeof(port_name), "%s", pack->port.name);
 
     // TODO: this is like probably fine, we shouldn't poll
     switch (pack->reason) {

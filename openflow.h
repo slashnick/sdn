@@ -9,6 +9,7 @@ extern std::set<uint64_t> seen_hosts;
 extern std::map<uint64_t, Client *> client_table;
 
 enum ofp_group_mod_command { OFPGC_ADD = 0, OFPGC_MODIFY = 1 };
+enum flow_mod_cmd { FM_CMD_ADD = 0, FM_CMD_MODIFY = 1 };
 
 void init_connection(Client *);
 void handle_ofp_packet(Client *);
