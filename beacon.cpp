@@ -6,23 +6,31 @@
 #include <cstring>
 #include <set>
 #include "event.h"
+#include "god.h"
 #include "openflow.h"
 
 // Set of outstanding polls, so we don't fire more than one event per poll
 typedef std::map<uint32_t, std::pair<uint64_t, uint32_t> > outstanding_t;
 static outstanding_t outstanding;
 
+static void send_polls_event(void*);
 static void send_poll(Client*, uint32_t, uint64_t);
 static void poll_timeout(void*);
 
-void send_polls(void* cptr) {
-    Client* client = (Client*)cptr;
+void send_polls(Client* client) {
     Server* server = (Server*)client->server;
     std::set<uint32_t>::iterator it;
     for (it = client->ports.begin(); it != client->ports.end(); it++) {
         send_poll(client, *it, 750);
     }
-    server->schedule_event(1000, send_polls, cptr);
+    server->schedule_event(1000, send_polls_event, (void*)client->uid);
+}
+
+void send_polls_event(void* arg) {
+    Client* client = client_table[(uint64_t)arg];
+    if (client != nullptr) {
+        send_polls(client);
+    }
 }
 
 void send_poll(Client* client, uint32_t port, uint64_t timeout) {
@@ -37,7 +45,7 @@ void send_poll(Client* client, uint32_t port, uint64_t timeout) {
     memcpy(beacon.magic, SWITCH_POLL_MAGIC, 6);
     beacon.poll_id = htonl((uint32_t)poll_id);
     beacon.uid1 = htonl(client->uid >> 32);
-    beacon.uid1 = htonl((uint32_t)client->uid);
+    beacon.uid2 = htonl((uint32_t)client->uid);
     beacon.port_id = htonl(port);
 
     send_packet_out(client, port, &beacon, sizeof(beacon));
@@ -45,7 +53,8 @@ void send_poll(Client* client, uint32_t port, uint64_t timeout) {
 }
 
 void recv_poll(Client* client, uint32_t port, const uint8_t* data) {
-    Graph* graph = &((Server*)client->server)->graph;
+    Server* server = (Server*)client->server;
+    Graph* graph = &server->graph;
     switch_poll_t beacon;
     memcpy(&beacon, data, sizeof(beacon));
 
@@ -62,7 +71,8 @@ void recv_poll(Client* client, uint32_t port, const uint8_t* data) {
         return;
     }
     graph->add_edge(from_uid, from_port, client->uid, port);
-    // TODO: MAIN LOGIC, RECOMPUTE THE GRAPH GOGOGO
+
+    god_function(server);
 }
 
 void poll_timeout(void* arg) {
@@ -77,6 +87,11 @@ void poll_timeout(void* arg) {
     outstanding.erase(it);
 
     Client* client = client_table[uid];
+    if (client == nullptr) {
+        // The client may have been removed
+        return;
+    }
+
     Server* server = (Server*)client->server;
     Graph* graph = &server->graph;
     if (!graph->has_any_edge(uid, port)) {
@@ -84,5 +99,6 @@ void poll_timeout(void* arg) {
         return;
     }
     graph->remove_edge(uid, port);
-    // TODO: MAIN LOGIC, RECOMPUTE THE GRAPH GOGOGO
+
+    god_function(server);
 }

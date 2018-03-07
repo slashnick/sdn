@@ -11,32 +11,33 @@ static void add_mst_edge(uint64_t, uint32_t, void*);
 
 void Graph::add_single_edge(uint64_t from, uint32_t fport, uint64_t to,
                             uint32_t tport) {
-    edges_t from_e = vertices[from];
-    edges_t::iterator from_search = from_e.find(fport);
+    edges_t* from_e = &vertices[from];
+    edges_t::iterator from_search = from_e->find(fport);
     std::pair<uint64_t, uint32_t> topair =
         std::pair<uint64_t, uint32_t>(to, tport);
 
-    if (from_search != from_e.end()) {
+    if (from_search != from_e->end()) {
         std::pair<uint64_t, uint32_t> existing_to = from_search->second;
+
         if (existing_to != topair) {
             // Remove the existing to-vertex's edge back to from
             vertices[existing_to.first].erase(existing_to.second);
-            from_e.erase(from_search);
-            from_e.insert(edge_t(fport, topair));
+            from_e->erase(from_search);
+            from_e->insert(edge_t(fport, topair));
         }
     } else {
-        from_e.insert(edge_t(fport, topair));
+        from_e->insert(edge_t(fport, topair));
     }
 }
 
 void Graph::remove_edge(uint64_t from, uint32_t fport) {
-    edges_t from_e = vertices[from];
-    edges_t::iterator from_search = from_e.find(fport);
+    edges_t* from_e = &vertices[from];
+    edges_t::iterator from_search = from_e->find(fport);
 
-    if (from_search != from_e.end()) {
+    if (from_search != from_e->end()) {
         std::pair<uint64_t, uint32_t> existing_to = from_search->second;
         vertices[existing_to.first].erase(existing_to.second);
-        from_e.erase(from_search);
+        from_e->erase(from_search);
     }
 }
 

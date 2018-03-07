@@ -10,6 +10,7 @@ Notes:
 beacon.cpp - Switch-to-switch link discovery
 client.cpp - Low-level I/O logic for reading and writing OFP packets to clients
 event.cpp - epoll event loop, with a priority queue for time-scheduled events
+god.cpp - Logic to handle topology updates
 graph.cpp - Graph data structure, with shortest path and MST algorithms
-openflow.cpp - Main controller logic
+openflow.cpp - Openflow protocol implementation
 sdn.cpp - main()

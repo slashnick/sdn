@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "beacon.h"
 #include "event.h"
 #include "openflow.h"
 
@@ -25,10 +26,12 @@ Write::Write(uint8_t *d, uint16_t s) {
 Client::Client(int f, void *s) {
     fd = f;
     server = s;
+    uid = 0;
     canwrite = 0;
     state = CLIENT_STATE_WAITING_HEADER;
     bufsize = sizeof(ofp_header_t);
     pos = 0;
+    has_mst = 0;
     cur_packet = (ofp_header_t *)malloc(bufsize);
     if (cur_packet == nullptr) {
         perror("malloc");
@@ -43,6 +46,7 @@ void Client::init() {
 /* Note: client will now own buf, so don't use buf after making this call */
 void Client::write_packet(void *buf, uint16_t count) {
     write_queue.push(Write((uint8_t *)buf, count));
+    flush_write_queue();
 }
 
 /* Read some data into the buffer, and handle  */
@@ -82,7 +86,7 @@ void Client::flush_write_queue() {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 canwrite = 0;
             } else {
-                fprintf(stderr, "write(%d): %s\n", fd, strerror(errno));
+                // fprintf(stderr, "write(%d): %s\n", fd, strerror(errno));
                 close_client();
                 break;
             }
@@ -115,7 +119,6 @@ void Client::handle_header() {
 }
 
 void Client::handle_packet() {
-    // printf("got an OFP packet: type=%d\n", this->cur_packet->type);
     handle_ofp_packet(this);
 
     state = CLIENT_STATE_WAITING_HEADER;
@@ -179,4 +182,7 @@ void Client::close_client() {
 
     Server *s = (Server *)server;
     s->clients.erase(fd);
+    if (uid) {
+        client_table.erase(uid);
+    }
 }

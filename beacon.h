@@ -2,6 +2,7 @@
 #define BEACON_H_
 
 #include <stdint.h>
+#include <set>
 #include "client.h"
 
 const uint8_t SWITCH_POLL_MAGIC[7] = "\x50\x05\xa1\xc0\xff\xee";
@@ -12,9 +13,10 @@ typedef struct {
     uint32_t uid1;
     uint32_t uid2;
     uint32_t port_id;
+    uint8_t _pad[16];
 } __attribute__((packed)) switch_poll_t;
 
-void send_polls(void*);
+void send_polls(Client*);
 void recv_poll(Client*, uint32_t, const uint8_t* data);
 
 #endif /* BEACON_H_ */

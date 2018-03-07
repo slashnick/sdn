@@ -39,6 +39,7 @@ class Client {
     uint8_t canwrite;
     std::set<uint32_t> ports;
     std::set<uint32_t> sw_ports;
+    uint8_t has_mst;
 
    private:
     void handle_header();

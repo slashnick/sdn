@@ -9,7 +9,7 @@
 #include "event.h"
 #include "graph.h"
 
-static std::set<uint64_t> seen_hosts;
+std::set<uint64_t> seen_hosts;
 std::map<uint64_t, Client *> client_table;
 static uint8_t setup_done = 0;
 
@@ -31,7 +31,7 @@ enum ofp_type {
 
 enum port_reason { PORT_ADD = 0, PORT_DEL = 1, PORT_MOD = 2 };
 
-enum flow_mod_cmd { FM_CMD_ADD = 0 };
+enum flow_mod_cmd { FM_CMD_ADD = 0, FM_CMD_MODIFY = 1 };
 
 enum ofp_oxm_class { OFPXMC_OPENFLOW_BASIC = 0x8000 };
 
@@ -189,11 +189,8 @@ typedef struct {
 
 static ofp_header_t *make_packet(uint8_t, uint16_t, uint32_t);
 static void setup_table_miss(Client *);
-static void setup_broadcast(Server *);
-static void add_broadcast_rule(uint64_t, const std::set<uint32_t> *);
 static void add_unicast_rule(uint64_t, uint32_t, void *);
 static void add_source_mac_rule(Client *, const void *);
-static void add_dest_mac_rule(Client *, const void *, uint32_t);
 static void handle_hello(Client *);
 static void handle_error(Client *);
 static void handle_feature_res(Client *);
@@ -207,6 +204,8 @@ void init_connection(Client *client) {
 
     hello = make_packet(OFPT_HELLO, sizeof(ofp_header_t), 666);
     client->write_packet(hello, sizeof(ofp_header_t));
+    add_dest_mac_rule(client, SWITCH_POLL_MAGIC, OFPP_CONTROLLER, FM_CMD_ADD,
+                      0);
     setup_table_miss(client);
 }
 
@@ -253,117 +252,70 @@ void setup_table_miss(Client *client) {
     client->write_packet(pack, length);
 }
 
-void setup_broadcast(Server *server) {
-    MST *mst = server->graph.make_mst();
-    MST::iterator vertex_it;
-    for (vertex_it = mst->begin(); vertex_it != mst->end(); vertex_it++) {
-        add_broadcast_rule(vertex_it->first, &vertex_it->second);
-    }
+void update_broadcast_group(Client *client, const std::set<uint32_t> *ports,
+                            uint16_t cmd) {
+    uint16_t packet_length =
+        sizeof(ofp_header_t) + sizeof(group_mod_t) +
+        (uint16_t)ports->size() * (sizeof(bucket_t) + sizeof(action_output_t));
+    ofp_header_t *pack = make_packet(OFPT_GROUP_MOD, packet_length, 0);
+    group_mod_t *group_mod = (group_mod_t *)pack->data;
 
-    delete mst;
-}
-
-void add_broadcast_rule(uint64_t switch_id, const std::set<uint32_t> *ports) {
-    /*
-    Client* client;
-    ofp_header_t *pack, *gpack;
-    group_mod_t *group_mod;
-    bucket_t *bucket;
-    flow_mod_t *flow_mod;
-    match_t *match;
-    instr_write_t *instr;
-    action_output_t *action;
-    action_group_t *action_g;
-    uint16_t packet_length, gpack_length, num_ports;
-    const port_list_t *node;
-
-    client = &of_clients[clientfd];
-
-    num_ports = 0;
-    for (node = ports; node != nullptr; node = node->next) {
-        num_ports++;
-    }
-    for (node = client->ports; node != nullptr; node = node->next) {
-        if (!map_contains(client->sw_ports, node->port)) {
-            num_ports++;
-        }
-    }
-    gpack_length = sizeof(ofp_header_t) + sizeof(group_mod_t) +
-                   num_ports * (sizeof(bucket_t) + sizeof(action_output_t));
-    gpack = make_packet(OFPT_GROUP_MOD, gpack_length, 0);
-    group_mod = (group_mod_t *)gpack->data;
-
+    group_mod->command = htons(cmd);
     group_mod->group_id = htonl(BCAST_GROUP_ID);
 
-    // MST switch ports
-    bucket = group_mod->buckets;
-    for (node = ports; node != nullptr; node = node->next) {
+    bucket_t *bucket = group_mod->buckets;
+    std::set<uint32_t>::const_iterator it;
+    for (it = ports->begin(); it != ports->end(); it++) {
         bucket->len = htons(sizeof(bucket_t) + sizeof(action_output_t));
         bucket->watch_port = htonl(OFPP_ANY);
         bucket->watch_group = htonl(OFPP_ANY);
 
-        action = (action_output_t *)(bucket + 1);
+        action_output_t *action = (action_output_t *)(bucket + 1);
         action->type = htons(OFPAT_OUTPUT);
         action->length = htons(sizeof(action_output_t));
-        action->port = htonl(node->port);
+        action->port = htonl(*it);
         action->max_len = htons(0xffff);
 
         bucket = (bucket_t *)(action + 1);
     }
-    // Host ports
-    for (node = client->ports; node != nullptr; node = node->next) {
-        if (!map_contains(client->sw_ports, node->port)) {
-            bucket->len = htons(sizeof(bucket_t) + sizeof(action_output_t));
-            bucket->watch_port = htonl(OFPP_ANY);
-            bucket->watch_group = htonl(OFPP_ANY);
 
-            action = (action_output_t *)(bucket + 1);
-            action->type = htons(OFPAT_OUTPUT);
-            action->length = htons(sizeof(action_output_t));
-            action->port = htonl(node->port);
-            action->max_len = htons(0xffff);
+    client->write_packet(pack, packet_length);
+}
 
-            bucket = (bucket_t *)(action + 1);
-        }
-    }
+void add_broadcast_rule(Client *client) {
+    uint16_t packet_length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
+                             sizeof(match_t) + sizeof(instr_write_t) +
+                             sizeof(action_group_t);
+    ofp_header_t *pack = make_packet(OFPT_FLOW_MOD, packet_length, 7);
 
-    client->write_packet(gpack, gpack_length);
-
-    packet_length = sizeof(ofp_header_t) + sizeof(flow_mod_t) +
-                    sizeof(match_t) + sizeof(instr_write_t) +
-                    sizeof(action_group_t);
-
-    pack = make_packet(OFPT_FLOW_MOD, packet_length, 0);
-    flow_mod = (flow_mod_t *)pack->data;
-    match = flow_mod->match;
-    instr = (instr_write_t *)((uint8_t *)match + sizeof(match_t));
-
+    flow_mod_t *flow_mod = (flow_mod_t *)pack->data;
     flow_mod->table_id = 1;
     flow_mod->command = FM_CMD_ADD;
     flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
-    flow_mod->priority = htons(0);
+    flow_mod->priority = htons(1);
     flow_mod->out_port = OFPP_ANY;
     flow_mod->out_group = OFPP_ANY;
 
+    match_t *match = flow_mod->match;
     match->type = htons(OFPMT_OXM);
     match->length = htons(4);
 
+    instr_write_t *instr = (instr_write_t *)(match + 1);
     instr->type = htons(OFPIT_WRITE_ACTIONS);
     instr->length = htons(sizeof(instr_write_t) + sizeof(action_group_t));
 
-    action_g = (action_group_t *)instr->actions;
+    action_group_t *action_g = (action_group_t *)instr->actions;
     action_g->type = htons(OFPAT_GROUP);
     action_g->length = htons(sizeof(action_group_t));
     action_g->group_id = htonl(BCAST_GROUP_ID);
 
     client->write_packet(pack, packet_length);
-    */
 }
 
 void add_unicast_rule(uint64_t uid, uint32_t port, void *mac) {
     Client *client = client_table[uid];
     add_source_mac_rule(client, mac);
-    add_dest_mac_rule(client, mac, port);
+    add_dest_mac_rule(client, mac, port, FM_CMD_ADD, 1);
 }
 
 void add_source_mac_rule(Client *client, const void *mac) {
@@ -401,7 +353,8 @@ void add_source_mac_rule(Client *client, const void *mac) {
     client->write_packet(pack, length);
 }
 
-void add_dest_mac_rule(Client *client, const void *mac, uint32_t port_id) {
+void add_dest_mac_rule(Client *client, const void *mac, uint32_t port_id,
+                       uint8_t cmd, uint8_t table_id) {
     ofp_header_t *pack;
     flow_mod_t *flow_mod;
     match_t *match;
@@ -419,8 +372,8 @@ void add_dest_mac_rule(Client *client, const void *mac, uint32_t port_id) {
     action = instr->actions;
 
     /* Add a rule */
-    flow_mod->table_id = 1;
-    flow_mod->command = FM_CMD_ADD;
+    flow_mod->table_id = table_id;
+    flow_mod->command = cmd;
     flow_mod->buffer_id = htonl(OFP_NO_BUFFER);
     flow_mod->priority = htons(11);
     flow_mod->out_port = OFPP_ANY;
@@ -570,7 +523,7 @@ void handle_multipart_res(Client *client) {
             client->ports.insert(port_id);
         }
     }
-    send_polls((void *)client);
+    send_polls(client);
 }
 
 void handle_echo_req(Client *client) {

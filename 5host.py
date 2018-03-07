@@ -10,8 +10,8 @@ def main():
     h1 = net.addHost('h1')
     h2 = net.addHost('h2')
     h3 = net.addHost('h3')
-    h4 = net.addHost('h3')
-    h5 = net.addHost('h3')
+    h4 = net.addHost('h4')
+    h5 = net.addHost('h5')
 
     s1 = net.addSwitch('sw1', protocols='OpenFlow13')
     s2 = net.addSwitch('sw2', protocols='OpenFlow13')
