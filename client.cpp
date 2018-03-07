@@ -42,7 +42,7 @@ void Client::init() {
 
 /* Note: client will now own buf, so don't use buf after making this call */
 void Client::write_packet(void *buf, uint16_t count) {
-    write_queue.push(new Write(reinterpret_cast<uint8_t *>(buf), count));
+    write_queue.push(Write((uint8_t *)buf, count));
 }
 
 /* Read some data into the buffer, and handle  */
