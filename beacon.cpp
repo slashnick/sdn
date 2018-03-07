@@ -91,14 +91,16 @@ void poll_timeout(void* arg) {
         // The client may have been removed
         return;
     }
+    port_down(client, port);
+}
 
+void port_down(Client* client, uint32_t port) {
     Server* server = (Server*)client->server;
     Graph* graph = &server->graph;
-    if (!graph->has_any_edge(uid, port)) {
+    if (!graph->has_any_edge(client->uid, port)) {
         // Edge wasn't there to begin with, do nothing
         return;
     }
-    graph->remove_edge(uid, port);
-
+    graph->remove_edge(client->uid, port);
     god_function(server);
 }

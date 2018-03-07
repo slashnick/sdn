@@ -11,7 +11,6 @@
 #include "graph.h"
 
 std::map<uint64_t, Client *> client_table;
-static uint8_t setup_done = 0;
 
 enum ofp_type {
     OFPT_HELLO = 0,
@@ -187,8 +186,6 @@ typedef struct {
 
 static ofp_header_t *make_packet(uint8_t, uint16_t, uint32_t);
 static void setup_table_miss(Client *);
-static void add_unicast_rule(uint64_t, uint32_t, void *);
-static void add_source_mac_rule(Client *, const void *);
 static void handle_hello(Client *);
 static void handle_error(Client *);
 static void handle_feature_res(Client *);
@@ -310,13 +307,9 @@ void add_broadcast_rule(Client *client) {
     client->write_packet(pack, packet_length);
 }
 
-void add_unicast_rule(uint64_t uid, uint32_t port, void *mac) {
-    Client *client = client_table[uid];
-    add_source_mac_rule(client, mac);
-    add_dest_mac_rule(client, mac, port, FM_CMD_ADD, 1);
-}
-
-void add_source_mac_rule(Client *client, const void *mac) {
+/*
+void add_source_mac_rule(Client *client, const void *mac, uint32_t port_id,
+                         uint8_t cmd) {
     ofp_header_t *pack;
     flow_mod_t *flow_mod;
     match_t *match;
@@ -350,6 +343,7 @@ void add_source_mac_rule(Client *client, const void *mac) {
 
     client->write_packet(pack, length);
 }
+*/
 
 void add_dest_mac_rule(Client *client, const void *mac, uint32_t port_id,
                        uint8_t cmd, uint8_t table_id) {
@@ -618,11 +612,22 @@ void handle_port_status(Client *client) {
     }
     pack = (port_status_t *)client->cur_packet->data;
 
-    // TODO: this is like probably fine, we shouldn't poll
+    uint32_t port = pack->port.port_id;
+    if (port > OFPP_MAX) {
+        return;
+    }
+
     switch (pack->reason) {
+        case PORT_ADD:
+            client->ports.insert(port);
+            break;
+        case PORT_DEL:
+            port_down(client, port);
+            client->ports.erase(port);
+            break;
         case PORT_MOD:
-            if (htonl(pack->port.port_id) <= OFPP_MAX) {
-                // send_poll(client, ntohl(pack->port.port_id), 1000);
+            if (pack->port.state & 1) {
+                //port_down(client, port);
             }
             break;
     }

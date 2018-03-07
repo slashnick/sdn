@@ -18,5 +18,6 @@ typedef struct {
 
 void send_polls(Client*);
 void recv_poll(Client*, uint32_t, const uint8_t* data);
+void port_down(Client*, uint32_t);
 
 #endif /* BEACON_H_ */
