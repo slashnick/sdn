@@ -3,7 +3,7 @@ CXXFLAGS = -std=c++11 -Weverything -Werror -Wno-packed -Wno-padded \
            -Wno-c++98-compat -Wno-c99-extensions -Wno-missing-noreturn \
 		   -Wno-cast-align -Wno-old-style-cast -Wno-exit-time-destructors \
 		   -Wno-global-constructors -Wno-unused-function -Wno-unused-parameter \
-		   -Wno-unused-macros
+		   -Wno-unused-macros -Wno-unused
 LD = clang++
 
 SOURCES = beacon.cpp beacon.h client.cpp client.h event.cpp event.h graph.cpp \
