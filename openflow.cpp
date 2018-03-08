@@ -515,6 +515,7 @@ void handle_multipart_res(Client *client) {
             client->ports.insert(port_id);
         }
     }
+    god_function((Server *)client->server);
     send_polls(client);
 }
 
